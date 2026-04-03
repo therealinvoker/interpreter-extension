@@ -9,6 +9,7 @@ import os from 'node:os'
 import { startPlayWriterCDPRelayServer, type RelayServer } from './cdp-relay.js'
 import { createFileLogger } from './create-logger.js'
 import { killPortProcess } from './kill-port.js'
+import { resolveBrowserExecutablePath } from './browser-config.js'
 
 const execAsync = promisify(exec)
 const extensionBuildQueues: Map<string, Promise<void>> = new Map()
@@ -101,9 +102,10 @@ export async function setupTestContext({
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), tempDirPrefix))
   const extensionPath = path.resolve('../extension', distDir)
   const allExtensionPaths = [extensionPath, ...additionalExtensions].join(',')
+  const browserPath = resolveBrowserExecutablePath()
 
   const browserContext = await chromium.launchPersistentContext(userDataDir, {
-    channel: 'chromium',
+    executablePath: browserPath,
     headless: !process.env.HEADFUL,
     colorScheme: 'dark',
     args: [`--disable-extensions-except=${allExtensionPaths}`, `--load-extension=${allExtensionPaths}`],

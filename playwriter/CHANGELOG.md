@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.103
+
+1. **Test harness now uses real local Chrome/Chromium discovery** — extension integration tests now resolve a real Chromium-family executable with the same browser lookup logic as the CLI, instead of hard-requiring Playwright's managed `channel: 'chromium'` browser cache. This makes the source-built extension tests runnable on dev machines that already have Chrome installed.
+2. **Browser discovery now includes standard Google Chrome installs** — managed browser lookup now recognizes regular Google Chrome locations on macOS, Windows, and Linux in addition to Chrome for Testing and Chromium.
+
 ## 0.0.102
 
 1. **`browser` exposed in sandbox** — user code can now call `browser.contexts()` to access pages from all open Chrome profiles when using `--direct` mode. The `browser` variable is available alongside `page`, `context`, etc. in all sandbox code.

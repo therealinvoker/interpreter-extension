@@ -30,6 +30,93 @@ function getPlaywrightChromiumCandidate(): string[] {
   return [executablePath]
 }
 
+function getPlaywrightCacheRoot({
+  platform,
+  env,
+  homeDir,
+}: {
+  platform: NodeJS.Platform
+  env: NodeJS.ProcessEnv
+  homeDir: string
+}): string | null {
+  if (platform === 'darwin') {
+    return path.join(homeDir, 'Library', 'Caches', 'ms-playwright')
+  }
+  if (platform === 'win32') {
+    const localAppData = env.LOCALAPPDATA || ''
+    return localAppData ? path.join(localAppData, 'ms-playwright') : null
+  }
+  return path.join(env.XDG_CACHE_HOME || path.join(homeDir, '.cache'), 'ms-playwright')
+}
+
+function getInstalledPlaywrightCacheCandidates({
+  platform,
+  env,
+  homeDir,
+  existsSync,
+}: {
+  platform: NodeJS.Platform
+  env: NodeJS.ProcessEnv
+  homeDir: string
+  existsSync: (filePath: string) => boolean
+}): string[] {
+  const cacheRoot = getPlaywrightCacheRoot({ platform, env, homeDir })
+  if (!cacheRoot || !existsSync(cacheRoot)) {
+    return []
+  }
+
+  let entries: string[]
+  try {
+    entries = fs.readdirSync(cacheRoot)
+  } catch {
+    return []
+  }
+
+  const revisions = entries
+    .map((entry) => {
+      const match = /^chromium-(\d+)$/.exec(entry)
+      if (!match) {
+        return null
+      }
+      return {
+        revision: Number(match[1]),
+        entry,
+      }
+    })
+    .filter((value): value is { revision: number; entry: string } => value !== null)
+    .sort((left, right) => right.revision - left.revision)
+
+  return revisions.map(({ entry }) => {
+    const revisionRoot = path.join(cacheRoot, entry)
+    if (platform === 'darwin') {
+      const macCandidates = ['chrome-mac-arm64', 'chrome-mac-x64', 'chrome-mac']
+      return macCandidates
+        .map((dirName) => {
+          return path.join(
+            revisionRoot,
+            dirName,
+            'Google Chrome for Testing.app',
+            'Contents',
+            'MacOS',
+            'Google Chrome for Testing',
+          )
+        })
+        .find((candidate) => existsSync(candidate)) || path.join(
+        revisionRoot,
+        'chrome-mac-arm64',
+        'Google Chrome for Testing.app',
+        'Contents',
+        'MacOS',
+        'Google Chrome for Testing',
+      )
+    }
+    if (platform === 'win32') {
+      return path.join(revisionRoot, 'chrome-win', 'chrome.exe')
+    }
+    return path.join(revisionRoot, 'chrome-linux', 'chrome')
+  })
+}
+
 function getPathEntries(env: NodeJS.ProcessEnv): string[] {
   const rawPath = env.PATH || env.Path || ''
   return rawPath
@@ -44,7 +131,7 @@ function getExecutableNames(platform: NodeJS.Platform): string[] {
   if (platform === 'win32') {
     return ['chrome.exe', 'chromium.exe']
   }
-  return ['chrome', 'chromium', 'chromium-browser']
+  return ['chrome', 'chromium', 'chromium-browser', 'google-chrome', 'google-chrome-stable']
 }
 
 function getPathExecutableCandidates({
@@ -67,11 +154,19 @@ export function getBrowserExecutableCandidates({
   env = process.env,
   homeDir = os.homedir(),
 }: Omit<BrowserLookupOptions, 'browserPath' | 'existsSync'> = {}): string[] {
+  const installedPlaywrightCacheCandidates = getInstalledPlaywrightCacheCandidates({
+    platform,
+    env,
+    homeDir,
+    existsSync: fs.existsSync,
+  })
   const platformCandidates = (() => {
     if (platform === 'darwin') {
       return [
         '/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
         '~/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        '~/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
         '/Applications/Chromium.app/Contents/MacOS/Chromium',
         '~/Applications/Chromium.app/Contents/MacOS/Chromium',
       ]
@@ -86,6 +181,9 @@ export function getBrowserExecutableCandidates({
         path.join(programFiles, 'Google', 'Chrome for Testing', 'Application', 'chrome.exe'),
         path.join(programFilesX86, 'Google', 'Chrome for Testing', 'Application', 'chrome.exe'),
         path.join(localAppData, 'Google', 'Chrome for Testing', 'Application', 'chrome.exe'),
+        path.join(programFiles, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        path.join(programFilesX86, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        path.join(localAppData, 'Google', 'Chrome', 'Application', 'chrome.exe'),
         path.join(programFiles, 'Chromium', 'Application', 'chromium.exe'),
         path.join(programFilesX86, 'Chromium', 'Application', 'chromium.exe'),
         path.join(localAppData, 'Chromium', 'Application', 'chromium.exe'),
@@ -94,7 +192,11 @@ export function getBrowserExecutableCandidates({
 
     return [
       '/opt/google/chrome-for-testing/chrome',
+      '/opt/google/chrome/chrome',
       '/usr/local/bin/chrome',
+      '/usr/local/bin/google-chrome',
+      '/usr/bin/google-chrome',
+      '/usr/bin/google-chrome-stable',
       '/usr/bin/chrome',
       '/usr/bin/chromium',
       '/usr/bin/chromium-browser',
@@ -104,7 +206,7 @@ export function getBrowserExecutableCandidates({
 
   const pathCandidates = getPathExecutableCandidates({ platform, env })
   return dedupePaths(
-    [...platformCandidates, ...pathCandidates, ...getPlaywrightChromiumCandidate()].map((filePath) => {
+    [...installedPlaywrightCacheCandidates, ...platformCandidates, ...pathCandidates, ...getPlaywrightChromiumCandidate()].map((filePath) => {
       return expandHomeDirectory({ filePath, homeDir })
     }),
   )
