@@ -32,6 +32,8 @@ export function getBrowserLaunchArgs({
     '--profile-directory=Default',
     '--no-first-run',
     '--no-default-browser-check',
+    '--password-store=basic',
+    '--use-mock-keychain',
     '--auto-accept-this-tab-capture',
     ...recordingFlags,
     `--disable-extensions-except=${path.resolve(extensionPath)}`,

@@ -4,6 +4,8 @@
 
 1. **Auto-returned Playwright handles are silently skipped** (#82). `await page.goto(url)` and similar single-expression code previously dumped the Playwright Response object, which is useless output — it's a programmatic handle, not display data. That same dump also leaked every process env var because `util.inspect` traversed `_connection._platform.env` at depth 4 (secrets, API keys, tokens). The CLI now skips return values that are Playwright handles (Response, Page, Browser, Request, Frame, BrowserContext, etc.) entirely. Return specific fields (`return response.url()`) or `console.log(response)` to see data.
 2. **`@xmorse/playwright-core`** now has custom `util.inspect` handlers on `ChannelOwner` and channel proxies. `console.log(response)` renders a concise summary like `Response@response@abc123 { url: '...', status: 200 }` without leaking internals.
+3. **Test harness now uses real local Chrome/Chromium discovery** — extension integration tests now resolve a real Chromium-family executable with the same browser lookup logic as the CLI, instead of hard-requiring Playwright's managed `channel: 'chromium'` browser cache. This makes the source-built extension tests runnable on dev machines that already have Chrome installed.
+4. **Browser discovery now includes standard Google Chrome installs** — managed browser lookup now recognizes regular Google Chrome locations on macOS, Windows, and Linux in addition to Chrome for Testing and Chromium.
 
 ## 0.0.102
 
