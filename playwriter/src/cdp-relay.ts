@@ -18,6 +18,7 @@ import type {
 } from './protocol.js'
 import pc from 'picocolors'
 import util from 'node:util'
+import crypto from 'node:crypto'
 
 // Prevent Buffers from dumping hex bytes in util.inspect output.
 Buffer.prototype[util.inspect.custom] = function () {
@@ -85,6 +86,7 @@ export async function startPlayWriterCDPRelayServer({
   const emitter = new EventEmitter()
   const store = relayState.createRelayStore()
   const extensionDownloadBehavior = new Map<string, Protocol.Browser.SetDownloadBehaviorRequest>()
+  const runtimeEnableWaiters = new Map<string, Set<() => void>>()
 
   const resolvedCdpLogger = cdpLogger || createCdpLogger()
   const logCdpJson = (entry: CdpLogEntry) => {
@@ -175,6 +177,43 @@ export async function startPlayWriterCDPRelayServer({
     }
     const normalized = String(value)
     return normalized ? normalized : null
+  }
+
+  const addRuntimeEnableWaiter = (sessionId: string, onReady: () => void): (() => void) => {
+    const waiters = runtimeEnableWaiters.get(sessionId) ?? new Set<() => void>()
+    waiters.add(onReady)
+    runtimeEnableWaiters.set(sessionId, waiters)
+
+    return () => {
+      const current = runtimeEnableWaiters.get(sessionId)
+      if (!current) {
+        return
+      }
+      current.delete(onReady)
+      if (current.size === 0) {
+        runtimeEnableWaiters.delete(sessionId)
+      }
+    }
+  }
+
+  const maybeResolveRuntimeEnableWaiters = (event: CDPEventBase): void => {
+    if (event.method !== 'Runtime.executionContextCreated' || !event.sessionId) {
+      return
+    }
+    const params = event.params as Protocol.Runtime.ExecutionContextCreatedEvent | undefined
+    if (params?.context?.auxData?.isDefault !== true) {
+      return
+    }
+
+    const waiters = runtimeEnableWaiters.get(event.sessionId)
+    if (!waiters || waiters.size === 0) {
+      return
+    }
+
+    for (const resolve of Array.from(waiters)) {
+      resolve()
+    }
+    runtimeEnableWaiters.delete(event.sessionId)
   }
 
   const getPageTargetForFrameId = ({
@@ -791,19 +830,34 @@ export async function startPlayWriterCDPRelayServer({
           break
         }
 
+        let cancelContextCreatedWait: (() => void) | undefined
         const contextCreatedPromise = new Promise<void>((resolve) => {
-          const handler = ({ event }: { event: CDPEventBase }) => {
-            if (event.method === 'Runtime.executionContextCreated' && event.sessionId === sessionId) {
-              const params = event.params as Protocol.Runtime.ExecutionContextCreatedEvent | undefined
-              if (params?.context?.auxData?.isDefault === true) {
-                clearTimeout(timeout)
-                emitter.off('cdp:event', handler)
-                resolve()
-              }
+          let settled = false
+          const finish = () => {
+            if (settled) {
+              return
             }
+            settled = true
+            clearTimeout(timeout)
+            cleanup()
+            resolve()
+          }
+          const cleanup = addRuntimeEnableWaiter(sessionId, finish)
+          cancelContextCreatedWait = () => {
+            if (settled) {
+              return
+            }
+            settled = true
+            clearTimeout(timeout)
+            cleanup()
+            resolve()
           }
           const timeout = setTimeout(() => {
-            emitter.off('cdp:event', handler)
+            if (settled) {
+              return
+            }
+            settled = true
+            cleanup()
             logger?.log(
               pc.yellow(
                 `IMPORTANT: Runtime.enable timed out waiting for main frame executionContextCreated (sessionId: ${sessionId}). This may cause pages to not be visible immediately.`,
@@ -811,18 +865,25 @@ export async function startPlayWriterCDPRelayServer({
             )
             resolve()
           }, 3000)
-          emitter.on('cdp:event', handler)
         })
 
-        const result = await sendToExtension({
-          extensionId: resolvedExtensionId,
-          method: 'forwardCDPCommand',
-          params: { sessionId, method, params, source },
-        })
+        try {
+          const result = await sendToExtension({
+            extensionId: resolvedExtensionId,
+            method: 'forwardCDPCommand',
+            params: { sessionId, method, params, source },
+          })
 
-        await contextCreatedPromise
+          await contextCreatedPromise
 
-        return result
+          return result
+        } catch (error) {
+          if (cancelContextCreatedWait) {
+            cancelContextCreatedWait()
+          }
+          await contextCreatedPromise
+          throw error
+        }
       }
     }
 
@@ -855,9 +916,26 @@ export async function startPlayWriterCDPRelayServer({
   )
   const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app })
 
-  const getCdpWsUrl = (c: { req: { header: (name: string) => string | undefined } }) => {
+  const getCdpWsUrl = (c: {
+    req: {
+      header: (name: string) => string | undefined
+      url: string
+    }
+  }) => {
     const hostHeader = c.req.header('host') || `${host}:${port}`
-    return `ws://${hostHeader}/cdp`
+    const requestUrl = new URL(c.req.url, `http://${hostHeader}`)
+    const clientId = crypto.randomUUID()
+    const params = new URLSearchParams()
+    const tokenParam = requestUrl.searchParams.get('token')
+    const extensionIdParam = requestUrl.searchParams.get('extensionId')
+    if (tokenParam) {
+      params.set('token', tokenParam)
+    }
+    if (extensionIdParam) {
+      params.set('extensionId', extensionIdParam)
+    }
+    const query = params.toString()
+    return `ws://${hostHeader}/cdp/${clientId}${query ? `?${query}` : ''}`
   }
 
   app.get('/', (c) => {
@@ -873,6 +951,14 @@ export async function startPlayWriterCDPRelayServer({
     const connected = store.getState().extensions.size > 0
     const activeTargets = defaultExtension?.connectedTargets.size || 0
     const info = defaultExtension?.info
+    const targets = defaultExtension
+      ? Array.from(defaultExtension.connectedTargets.values()).map((target) => ({
+          targetId: target.targetId,
+          type: target.targetInfo.type,
+          title: target.targetInfo.title || '',
+          url: target.targetInfo.url || '',
+        }))
+      : []
 
     return c.json({
       connected,
@@ -880,6 +966,7 @@ export async function startPlayWriterCDPRelayServer({
       browser: info?.browser || null,
       profile: info ? { email: info.email || '', id: info.id || '' } : null,
       playwriterVersion: info?.version || null,
+      targets,
     })
   })
 
@@ -892,6 +979,12 @@ export async function startPlayWriterCDPRelayServer({
         profile: ext.info ? { email: ext.info.email || '', id: ext.info.id || '' } : null,
         activeTargets: ext.connectedTargets.size,
         playwriterVersion: ext.info?.version || null,
+        targets: Array.from(ext.connectedTargets.values()).map((target) => ({
+          targetId: target.targetId,
+          type: target.targetInfo.type,
+          title: target.targetInfo.title || '',
+          url: target.targetInfo.url || '',
+        })),
       }
     })
     return c.json({ extensions })
@@ -1434,6 +1527,7 @@ export async function startPlayWriterCDPRelayServer({
             })
 
             const cdpEvent: CDPEventBase = { method, sessionId, params }
+            maybeResolveRuntimeEnableWaiters(cdpEvent)
             emitter.emit('cdp:event', { event: cdpEvent, sessionId })
 
             maybeEmitBrowserDownloadCompatEvent({ method, params, extensionId: connectionId })

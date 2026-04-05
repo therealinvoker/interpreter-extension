@@ -22,6 +22,12 @@ export type ExtensionStatus = {
   profile: { email: string; id: string } | null
   activeTargets: number
   playwriterVersion: string | null
+  targets?: Array<{
+    targetId: string
+    type: string
+    title: string
+    url: string
+  }>
 }
 
 export async function getRelayServerVersion(port: number = RELAY_PORT): Promise<string | null> {
@@ -49,7 +55,12 @@ export async function getExtensionStatus(
     if (!response.ok) {
       return null
     }
-    return (await response.json()) as { connected: boolean; activeTargets: number; playwriterVersion: string | null }
+      return (await response.json()) as {
+        connected: boolean
+        activeTargets: number
+        playwriterVersion: string | null
+        targets?: Array<{ targetId: string; type: string; title: string; url: string }>
+      }
   } catch {
     return null
   }
@@ -74,6 +85,7 @@ export async function getExtensionsStatus(port: number = RELAY_PORT): Promise<Ex
         browser: string | null
         profile: { email: string; id: string } | null
         playwriterVersion?: string | null
+        targets?: Array<{ targetId: string; type: string; title: string; url: string }>
       }
 
       if (!fallbackData?.connected) {
@@ -88,6 +100,7 @@ export async function getExtensionsStatus(port: number = RELAY_PORT): Promise<Ex
           profile: fallbackData.profile,
           activeTargets: fallbackData.activeTargets,
           playwriterVersion: fallbackData.playwriterVersion || null,
+          targets: fallbackData.targets || [],
         },
       ]
     }
