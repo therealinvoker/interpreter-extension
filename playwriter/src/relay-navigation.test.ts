@@ -10,6 +10,7 @@ import {
   type TestContext,
   withTimeout,
   createSimpleServer,
+  safeCloseCDPBrowser,
 } from './test-utils.js'
 import './test-declarations.js'
 
@@ -524,11 +525,14 @@ describe('Relay Navigation Tests', () => {
       'Protocol-Version': '1.3',
       webSocketDebuggerUrl: expect.stringContaining('ws://'),
     })
-    expect(versionJson.webSocketDebuggerUrl).toContain(`127.0.0.1:${TEST_PORT}/cdp`)
+    expect(versionJson.webSocketDebuggerUrl).toContain(`127.0.0.1:${TEST_PORT}/cdp/`)
 
     // Test /json/version/ (trailing slash)
     const versionSlashRes = await fetch(`http://127.0.0.1:${TEST_PORT}/json/version/`)
     expect(versionSlashRes.status).toBe(200)
+    const versionSlashJson = (await versionSlashRes.json()) as { webSocketDebuggerUrl: string }
+    expect(versionSlashJson.webSocketDebuggerUrl).toContain(`127.0.0.1:${TEST_PORT}/cdp/`)
+    expect(versionSlashJson.webSocketDebuggerUrl).not.toBe(versionJson.webSocketDebuggerUrl)
 
     // Test /json/list
     const listRes = await fetch(`http://127.0.0.1:${TEST_PORT}/json/list`)
@@ -556,6 +560,95 @@ describe('Relay Navigation Tests', () => {
     const putRes = await fetch(`http://127.0.0.1:${TEST_PORT}/json/version`, { method: 'PUT' })
     expect(putRes.status).toBe(200)
 
+    const extensionsStatusRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extensions/status`)
+    expect(extensionsStatusRes.status).toBe(200)
+    const extensionsStatusJson = (await extensionsStatusRes.json()) as {
+      extensions: Array<{
+        extensionId: string
+        stableKey?: string
+        targets?: Array<{ title: string; url: string; type: string }>
+      }>
+    }
+    expect(extensionsStatusJson.extensions.length).toBeGreaterThan(0)
+    expect(
+      extensionsStatusJson.extensions.some((extension) => {
+        return (extension.targets ?? []).some((target) => {
+          return target.type === 'page' && target.url.includes('example.com')
+        })
+      }),
+    ).toBe(true)
+
+    await page.close()
+  }, 60000)
+
+  it('should allow repeated connectOverCDP calls through the HTTP discovery endpoint', async () => {
+    const browserContext = getBrowserContext()
+    const serviceWorker = await getExtensionServiceWorker(browserContext)
+
+    const page = await browserContext.newPage()
+    await page.goto('https://example.com/?test=discovery-reconnect')
+    await page.bringToFront()
+
+    await serviceWorker.evaluate(async () => {
+      await globalThis.toggleExtensionForActiveTab()
+    })
+    await new Promise((r) => setTimeout(r, 200))
+
+    const relayUrl = `http://127.0.0.1:${TEST_PORT}`
+    const firstBrowser = await chromium.connectOverCDP(relayUrl)
+    const secondBrowser = await chromium.connectOverCDP(relayUrl)
+
+    const firstPages = firstBrowser.contexts().flatMap((context) => context.pages())
+    const secondPages = secondBrowser.contexts().flatMap((context) => context.pages())
+
+    expect(firstPages.some((p) => p.url().includes('example.com/?test=discovery-reconnect'))).toBe(true)
+    expect(secondPages.some((p) => p.url().includes('example.com/?test=discovery-reconnect'))).toBe(true)
+
+    await safeCloseCDPBrowser(firstBrowser)
+    await safeCloseCDPBrowser(secondBrowser)
+    await page.close()
+  }, 60000)
+
+  it('should connect to an explicitly selected extensionId from extensions status', async () => {
+    const browserContext = getBrowserContext()
+    const serviceWorker = await getExtensionServiceWorker(browserContext)
+
+    const page = await browserContext.newPage()
+    await page.goto('https://example.com/?test=explicit-extension-selection')
+    await page.bringToFront()
+
+    await serviceWorker.evaluate(async () => {
+      await globalThis.toggleExtensionForActiveTab()
+    })
+    await new Promise((r) => setTimeout(r, 200))
+
+    const statusRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extensions/status`)
+    expect(statusRes.status).toBe(200)
+    const statusJson = (await statusRes.json()) as {
+      extensions: Array<{
+        extensionId: string
+        stableKey?: string
+        targets?: Array<{ title: string; url: string; type: string }>
+      }>
+    }
+
+    const selectedExtension = statusJson.extensions.find((extension) => {
+      return (extension.targets ?? []).some((target) => {
+        return target.type === 'page' && target.url.includes('explicit-extension-selection')
+      })
+    })
+    expect(selectedExtension).toBeDefined()
+
+    const browser = await chromium.connectOverCDP(
+      getCdpUrl({
+        port: TEST_PORT,
+        extensionId: selectedExtension!.stableKey || selectedExtension!.extensionId,
+      }),
+    )
+    const cdpPages = browser.contexts().flatMap((context) => context.pages())
+    expect(cdpPages.some((p) => p.url().includes('explicit-extension-selection'))).toBe(true)
+
+    await safeCloseCDPBrowser(browser)
     await page.close()
   }, 60000)
 
