@@ -11,6 +11,7 @@
  *
  * Generated files:
  * - playwriter/dist/prompt.md - MCP prompt (skill.md minus CLI sections)
+ * - playwriter/dist/skill.md - full skill docs for local runtime usage
  * - website/public/SKILL.md - full copy for playwriter.dev/SKILL.md
  * - website/public/.well-known/skills/index.json - Agent Skills Discovery endpoint
  * - website/public/.well-known/skills/playwriter/SKILL.md - skill file with frontmatter
@@ -181,6 +182,10 @@ function buildPromptFromSkill() {
   const distPromptPath = path.join(distDir, 'prompt.md')
   fs.writeFileSync(distPromptPath, promptContent, 'utf-8')
   console.log('Generated playwriter/dist/prompt.md (from skill.md)')
+
+  const distSkillPath = path.join(distDir, 'skill.md')
+  fs.writeFileSync(distSkillPath, skillContent, 'utf-8')
+  console.log('Generated playwriter/dist/skill.md')
 
   // Copy full skill.md to website/public/ for hosting at playwriter.dev/SKILL.md
   const websitePublicRoot = path.join(playwriterDir, '..', 'website', 'public')

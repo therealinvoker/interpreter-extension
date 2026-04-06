@@ -19,7 +19,6 @@
   "bin": "./bin.js",
   "files": [
     "dist",
-    "src",
     "bin.js"
   ],
   "keywords": [],

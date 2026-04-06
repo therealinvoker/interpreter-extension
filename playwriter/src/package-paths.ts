@@ -31,6 +31,6 @@ export function getBundledExtensionPath(): string {
   }
 
   throw new Error(
-    `Bundled Playwriter extension not found under ${packageDir}. Rebuild or reinstall the playwriter package.`,
+    `Bundled Interpreter Chrome Extension not found under ${packageDir}. Rebuild or reinstall the CLI package.`,
   )
 }

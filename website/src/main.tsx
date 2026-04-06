@@ -26,7 +26,7 @@ export const app = new Spiceflow()
     )
   })
   .staticPage('/', async () => {
-    const title = 'Playwriter - Chrome extension & CLI that lets agents use your real browser'
+    const title = 'Interpreter Chrome Extension - Chrome extension & CLI that lets agents use your real browser'
     const description =
       'Chrome extension and CLI that let your agents control your actual browser. Your logins, extensions, cookies — already there. No headless instance, no bot detection.'
     const image = 'https://playwriter.dev/og-image.png'

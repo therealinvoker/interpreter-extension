@@ -1,13 +1,13 @@
 # MCP Setup
 
-> **Note:** CLI is the recommended way to use Playwriter. See [README.md](./README.md) for CLI usage.
+> **Note:** CLI is the recommended way to use Interpreter Chrome Extension. See [README.md](./README.md) for CLI usage.
 
 Add to your MCP client settings:
 
 ```json
 {
   "mcpServers": {
-    "playwriter": {
+    "interpreterChromeExtension": {
       "command": "npx",
       "args": ["-y", "playwriter@latest"]
     }
@@ -43,7 +43,7 @@ Auto-create a tab when Playwright connects (no manual extension click needed).
 ```json
 {
   "mcpServers": {
-    "playwriter": {
+    "interpreterChromeExtension": {
       "command": "npx",
       "args": ["-y", "playwriter@latest"],
       "env": {
@@ -63,7 +63,7 @@ Connect directly to Chrome's DevTools Protocol without the extension. Set `PLAYW
 ```json
 {
   "mcpServers": {
-    "playwriter": {
+    "interpreterChromeExtension": {
       "command": "npx",
       "args": ["-y", "playwriter@latest"],
       "env": {
@@ -97,7 +97,7 @@ npx -y playwriter serve --token <secret>
 ```json
 {
   "mcpServers": {
-    "playwriter": {
+    "interpreterChromeExtension": {
       "command": "npx",
       "args": ["-y", "playwriter@latest", "--host", "host.docker.internal", "--token", "<secret>"]
     }
@@ -110,7 +110,7 @@ Or with environment variables:
 ```json
 {
   "mcpServers": {
-    "playwriter": {
+    "interpreterChromeExtension": {
       "command": "npx",
       "args": ["-y", "playwriter@latest"],
       "env": {

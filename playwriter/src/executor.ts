@@ -144,12 +144,12 @@ export function wrapCode(code: string): string {
   return `(async () => { ${code} })()`
 }
 
-const EXTENSION_NOT_CONNECTED_ERROR = `The Playwriter Chrome extension is not connected. Make sure you have:
-1. Installed the extension: https://chromewebstore.google.com/detail/playwriter-mcp/jfeammnjpkecdekppnclgkkffahnhfhe
+const EXTENSION_NOT_CONNECTED_ERROR = `The Interpreter Chrome Extension is not connected. Make sure you have:
+1. Installed the extension from the Chrome Web Store
 2. Clicked the extension icon on a tab to enable it (or refreshed the page if just installed)`
 
 const NO_PAGES_AVAILABLE_ERROR =
-  'No Playwright pages are available. Enable Playwriter on a tab or set PLAYWRITER_AUTO_ENABLE=1 to auto-create one.'
+  'No Playwright pages are available. Enable Interpreter Chrome Extension on a tab or set PLAYWRITER_AUTO_ENABLE=1 to auto-create one.'
 
 const MAX_LOGS_PER_PAGE = 5000
 
@@ -490,7 +490,7 @@ export class PlaywrightExecutor {
 
       this.enqueueWarning(
         `The current page in ${stateKeyLabel} was closed (url: ${closedUrl}). ` +
-          `No open pages remain. Open a tab with Playwriter enabled, then reassign ${stateKeyLabel}.`,
+          `No open pages remain. Open a tab with Interpreter Chrome Extension enabled, then reassign ${stateKeyLabel}.`,
       )
     })
   }
@@ -507,7 +507,7 @@ export class PlaywrightExecutor {
       const url = popup.url()
       this.enqueueWarning(
         `Popup window detected (page index ${pageIndex}, url: ${url}). ` +
-          `Popup windows cannot be controlled by playwriter. ` +
+          `Popup windows cannot be controlled through Interpreter Chrome Extension. ` +
           `Repeat the interaction in a way that does not open a popup, or navigate to the URL directly in a new tab.`,
       )
     })
@@ -1054,7 +1054,7 @@ export class PlaywrightExecutor {
 
       // Screen recording functions (via chrome.tabCapture in extension - survives navigation)
       // Recording uses chrome.tabCapture which requires activeTab permission.
-      // This permission is granted when the user clicks the Playwriter extension icon on a tab.
+      // This permission is granted when the user clicks the Interpreter Chrome Extension icon on a tab.
       const relayPort = this.cdpConfig.port || 19988
       const self = this
       const recordingGhostCursor = new RecordingGhostCursorController({

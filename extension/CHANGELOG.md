@@ -13,13 +13,13 @@
 
 ### Changes
 
-- **Skip welcome tab in packaged automation builds**: Added a build-time flag so the extension copy bundled into the Playwriter CLI does not auto-open `welcome.html` on install. Regular dev/test extension builds still keep the welcome page.
+- **Skip welcome tab in packaged automation builds**: Added a build-time flag so the extension copy bundled into the CLI does not auto-open `welcome.html` on install. Regular dev/test extension builds still keep the welcome page.
 
 ## 0.0.77
 
 ### Changes
 
-- **Use `workspace:^` for local Playwriter dependency**: Switched `playwriter` from `workspace:*` to `workspace:^` in `extension/package.json` to avoid pinned workspace versions when package metadata is packed.
+- **Use `workspace:^` for the local relay dependency**: Switched `playwriter` from `workspace:*` to `workspace:^` in `extension/package.json` to avoid pinned workspace versions when package metadata is packed.
 
 ## 0.0.76
 
@@ -63,7 +63,7 @@
 
 ### Features
 
-- **First extension keeps connection**: When multiple Playwriter extensions are installed, the actively-used one (with tabs) now keeps the connection. New extensions are rejected with code 4002 instead of taking over.
+- **First extension keeps connection**: When multiple Interpreter Chrome Extensions are installed, the actively-used one (with tabs) now keeps the connection. New extensions are rejected with code 4002 instead of taking over.
 - **Smarter reconnection**: Extension now polls `/extension/status` for `activeTargets` count and only attempts reconnection when the other extension has no active tabs.
 
 ### Bug Fixes

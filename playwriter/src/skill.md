@@ -17,7 +17,7 @@ Each session runs in an **isolated sandbox** with its own `state` object. Use se
 
 - Keep state separate between different tasks or agents
 - Persist data (pages, variables) across multiple execute calls
-- Avoid interference when multiple agents use playwriter simultaneously
+- Avoid interference when multiple agents use the CLI simultaneously
 
 Get a new session ID to use in commands:
 
@@ -129,7 +129,7 @@ console.log({ title, url });
 - **Heredoc** (`<<'EOF'`): best for multiline code. The quoted `'EOF'` delimiter disables all bash expansion. Any character works inside, including `$`, backticks, and single quotes.
 - **`$'...'`**: allows `\'` escaping but `\n`, `\t`, `\\` become special — conflicts with JS regex patterns.
 
-### Debugging playwriter issues
+### Debugging browser-control issues
 
 If some internal critical error happens you can read the relay server logs to understand the issue. The log file is located in the user home directory:
 
@@ -138,7 +138,7 @@ playwriter logfile  # prints the log file path
 # typically: ~/.playwriter/relay-server.log
 ```
 
-The relay log contains logs from the extension, MCP and WS server. A separate CDP JSONL log is created alongside it (see `playwriter logfile`) with all CDP commands/responses and events, with long strings truncated. Both files are recreated every time the server starts. For debugging internal playwriter errors, read these files with grep/rg to find relevant lines.
+The relay log contains logs from the extension, MCP and WS server. A separate CDP JSONL log is created alongside it (see `playwriter logfile`) with all CDP commands/responses and events, with long strings truncated. Both files are recreated every time the server starts. For debugging internal browser-control errors, read these files with grep/rg to find relevant lines.
 
 Example: summarize CDP traffic counts by direction + method:
 
@@ -150,11 +150,11 @@ If you find a bug, you can create a gh issue using `gh issue create -R remorses/
 
 ---
 
-# playwriter best practices
+# Browser-control best practices
 
-Control user's Chrome browser via playwright code snippets. Prefer single-line code with semicolons between statements. Use playwriter immediately without waiting for user actions; only if you get "extension is not connected" or "no browser tabs have Playwriter enabled" should you ask the user to click the playwriter extension icon on the target tab.
+Control the user's Chrome browser via Playwright code snippets. Prefer single-line code with semicolons between statements. Use the CLI/browser-control workflow immediately without waiting for user actions; only if you get "extension is not connected" or "no browser tabs have Interpreter Chrome Extension enabled" should you ask the user to click the Interpreter Chrome Extension icon on the target tab.
 
-**When to use playwriter instead of webfetch/curl:** If a website is JS-heavy (SPAs like Instagram, Twitter, Facebook, etc.), has cookie consent modals, login walls, lazy-loaded content, carousels, or infinite scroll — **always use playwriter**. Simple fetch/webfetch will return an empty HTML shell with no content. Do NOT waste time trying curl, webfetch, or parsing raw HTML from JS-rendered sites. Go straight to playwriter: navigate with a real browser, dismiss modals, then extract what you need via `page.evaluate()` or network interception.
+**When to use browser control instead of webfetch/curl:** If a website is JS-heavy (SPAs like Instagram, Twitter, Facebook, etc.), has cookie consent modals, login walls, lazy-loaded content, carousels, or infinite scroll — **always use browser control**. Simple fetch/webfetch will return an empty HTML shell with no content. Do NOT waste time trying curl, webfetch, or parsing raw HTML from JS-rendered sites. Go straight to the CLI/browser-control workflow: navigate with a real browser, dismiss modals, then extract what you need via `page.evaluate()` or network interception.
 
 **If Chrome is not running**, the extension can't connect. Start Chrome from the command line before retrying:
 
@@ -205,7 +205,7 @@ You can collaborate with the user - they can help with captchas, difficult eleme
 - **No bringToFront**: never call unless user asks - it's disruptive and unnecessary, you can interact with background pages
 - **Check state after actions**: always verify page state after clicking/submitting (see next section)
 - **Clean up listeners**: call `state.page.removeAllListeners()` at end of message to prevent leaks
-- **CDP sessions**: use `getCDPSession({ page: state.page })` not `state.page.context().newCDPSession()` - NEVER use `newCDPSession()` method, it doesn't work through playwriter relay
+- **CDP sessions**: use `getCDPSession({ page: state.page })` not `state.page.context().newCDPSession()` - NEVER use `newCDPSession()` method, it doesn't work through the Interpreter Chrome Extension relay
 - **Wait for load**: use `state.page.waitForLoadState('domcontentloaded')` not `state.page.waitForEvent('load')` - waitForEvent times out if already loaded
 - **Minimize timeouts**: prefer proper waits (`waitForSelector`, `waitForPageLoad`) over `state.page.waitForTimeout()`. Short timeouts (1-2s) are acceptable for non-deterministic events like popups, animations, or tab opens where no specific selector is available
 - **Snapshot before screenshot**: always use `snapshot()` first to understand page state (text-based, fast, cheap). Only use `screenshot` when you specifically need visual/spatial information. Never take a screenshot just to check if a page loaded or to read text content — snapshot gives you that instantly without burning image tokens
@@ -337,8 +337,8 @@ await state.page.waitForSelector('article', { timeout: 10000 })
 await waitForPageLoad({ page: state.page, timeout: 5000 })
 ```
 
-**9. Not using playwriter for JS-rendered sites**
-Do NOT waste context trying webfetch, curl, or Playwright CLI screenshots on SPAs (Instagram, Twitter, etc.). These return empty HTML shells. Use playwriter directly:
+**9. Not using browser control for JS-rendered sites**
+Do NOT waste context trying webfetch, curl, or Playwright CLI screenshots on SPAs (Instagram, Twitter, etc.). These return empty HTML shells. Use the CLI/browser-control workflow directly:
 
 ```js
 state.page = context.pages().find((p) => p.url() === 'about:blank') ?? (await context.newPage())
@@ -348,7 +348,7 @@ await snapshot({ page: state.page, search: /cookie|consent|accept/i }).then(cons
 ```
 
 **10. Login buttons that open popups**
-Playwriter cannot control popup windows. Use cmd+click to open in a new tab instead:
+Interpreter Chrome Extension cannot control popup windows. Use cmd+click to open in a new tab instead:
 
 ```js
 await state.page.locator('button:has-text("Login with Google")').click({ modifiers: ['Meta'] })
@@ -498,7 +498,7 @@ await state.page.locator('li').nth(3).click() // 4th item (0-indexed)
 
 ## working with pages
 
-**Pages are shared, state is not.** `context.pages()` returns all browser tabs with playwriter enabled — shared across all sessions. Multiple agents see the same tabs. If another agent navigates or closes a page you're using, you'll be affected. To avoid interference, **get your own page**.
+**Pages are shared, state is not.** `context.pages()` returns all browser tabs with Interpreter Chrome Extension enabled — shared across all sessions. Multiple agents see the same tabs. If another agent navigates or closes a page you're using, you'll be affected. To avoid interference, **get your own page**.
 
 **Get or create your page (first call):**
 
@@ -530,7 +530,7 @@ Only use a page from `context.pages()` if the user explicitly asks you to contro
 
 ```js
 const pages = context.pages().filter((x) => x.url().includes('myapp.com'))
-if (pages.length === 0) throw new Error('No myapp.com page found. Ask user to enable playwriter on it.')
+if (pages.length === 0) throw new Error('No myapp.com page found. Ask the user to enable Interpreter Chrome Extension on it.')
 if (pages.length > 1) throw new Error(`Found ${pages.length} matching pages, expected 1`)
 state.targetPage = pages[0]
 ```
@@ -569,7 +569,7 @@ const { cookies } = await cdp.send('Network.getCookies', { urls: [state.page.url
 console.log(cookies)
 ```
 
-MUST use this for page-scoped cookies in extension mode. `Storage.getCookies` is a root-session command and will fail in playwriter.
+MUST use this for page-scoped cookies in extension mode. `Storage.getCookies` is a root-session command and will fail in the Interpreter Chrome Extension flow.
 
 **Downloading large data** - console output truncates large strings. Trigger a browser download instead:
 
@@ -807,7 +807,7 @@ Labels are color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkbo
 
 **resizeImageForAgent** - shrink an image so it consumes fewer tokens when read back into context. The resized image is automatically included in the response (visible to the LLM). `await resizeImageForAgent({ input: './screenshot.png' })`. Also accepts `width`, `height`, `maxDimension`, `quality`, `format` (default: `'png'`), `output`. Alias: `resizeImage`.
 
-**recording.start / recording.stop** - record the page as a video at native FPS (30-60fps). Uses `chrome.tabCapture` so **recording survives page navigation**. Auto-overlays a ghost cursor that follows mouse actions. Requires user to have clicked the Playwriter extension icon on the tab. Auto-resizes viewport to 16:9 (override with `aspectRatio: null`). Auto-stops after 15 min (override with `maxDurationMs`).
+**recording.start / recording.stop** - record the page as a video at native FPS (30-60fps). Uses `chrome.tabCapture` so **recording survives page navigation**. Auto-overlays a ghost cursor that follows mouse actions. Requires the user to have clicked the Interpreter Chrome Extension icon on the tab. Auto-resizes viewport to 16:9 (override with `aspectRatio: null`). Auto-stops after 15 min (override with `maxDurationMs`).
 
 For demos, use interaction methods (`locator.click()`, `page.mouse.move()`) instead of `goto()` to show realistic cursor motion.
 
@@ -856,7 +856,7 @@ const demoPath = await createDemoVideo({
 
 ## pinned elements
 
-Users can right-click → "Copy Playwriter Element Reference" to store elements in `globalThis.playwriterPinnedElem1` (increments for each pin). The reference is copied to clipboard:
+Users can right-click → "Copy Interpreter Element Reference" to store elements in `globalThis.playwriterPinnedElem1` (increments for each pin). The reference is copied to clipboard:
 
 ```js
 const el = await state.page.evaluateHandle(() => globalThis.playwriterPinnedElem1)

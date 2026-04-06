@@ -1,5 +1,5 @@
 /**
- * Screen recording functionality for the Playwriter extension.
+ * Screen recording functionality for the Interpreter Chrome Extension.
  * Uses chrome.tabCapture to record tabs via an offscreen document.
  */
 
@@ -94,7 +94,7 @@ export async function handleStartRecording(params: StartRecordingParams): Promis
   if (!tabId) {
     return {
       success: false,
-      error: 'No connected tab found for recording. Click the Playwriter extension icon on the tab you want to record.',
+      error: 'No connected tab found for recording. Click the Interpreter Chrome Extension icon on the tab you want to record.',
     }
   }
 
@@ -121,7 +121,7 @@ export async function handleStartRecording(params: StartRecordingParams): Promis
           // Chrome returns this error when activeTab permission hasn't been granted
           // User must click the extension icon at least once per session - this is a Chrome security requirement
           if (errorMsg.includes('Extension has not been invoked') || errorMsg.includes('activeTab')) {
-            reject(new Error(`${errorMsg}. Click the Playwriter extension icon on this tab to enable recording.`))
+            reject(new Error(`${errorMsg}. Click the Interpreter Chrome Extension icon on this tab to enable recording.`))
           } else {
             reject(new Error(errorMsg))
           }

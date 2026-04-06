@@ -997,14 +997,14 @@ export async function startPlayWriterCDPRelayServer({
   app
     .on(['GET', 'PUT'], '/json/version', (c) => {
       return c.json({
-        Browser: `Playwriter/${VERSION}`,
+        Browser: `InterpreterChromeExtension/${VERSION}`,
         'Protocol-Version': '1.3',
         webSocketDebuggerUrl: getCdpWsUrl(c),
       })
     })
     .on(['GET', 'PUT'], '/json/version/', (c) => {
       return c.json({
-        Browser: `Playwriter/${VERSION}`,
+        Browser: `InterpreterChromeExtension/${VERSION}`,
         'Protocol-Version': '1.3',
         webSocketDebuggerUrl: getCdpWsUrl(c),
       })

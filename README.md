@@ -3,7 +3,7 @@
     <picture>
         <source media="(prefers-color-scheme: dark)" srcset="banner-dark.png" />
         <source media="(prefers-color-scheme: light)" srcset="banner.png" />
-    <img src="banner.png" alt="Playwriter - For browser automation MCP" width="400" height="278" />
+    <img src="banner.png" alt="Interpreter Chrome Extension - browser automation for your own Chrome" width="400" height="278" />
     </picture>
     <br/>
     <br/>
@@ -11,7 +11,7 @@
     <br/>
 </div>
 
-Other browser MCPs spawn a fresh Chrome — no logins, no extensions, instantly flagged by bot detectors, double the memory. Playwriter connects to **your running browser** instead. One Chrome extension, full Playwright API, everything you're already logged into.
+Other browser MCPs spawn a fresh Chrome — no logins, no extensions, instantly flagged by bot detectors, double the memory. Interpreter Chrome Extension connects to **your running browser** instead. One Chrome extension, full Playwright API, everything you're already logged into.
 
 ## Installation
 
@@ -26,7 +26,7 @@ Other browser MCPs spawn a fresh Chrome — no logins, no extensions, instantly 
    playwriter -s 1 -e 'await page.goto("https://example.com")'
    ```
 
-4. Install the skill so your agent knows how to use Playwriter:
+4. Install the skill so your agent knows how to use the Interpreter Chrome Extension workflow:
    ```bash
    npx -y skills add remorses/playwriter
    ```
@@ -34,7 +34,7 @@ Other browser MCPs spawn a fresh Chrome — no logins, no extensions, instantly 
 ## Quick Start
 
 ```bash
-playwriter browser start  # starts Chrome for Testing/Chromium with bundled Playwriter extension
+playwriter browser start  # starts Chrome for Testing/Chromium with bundled Interpreter Chrome Extension
 playwriter session new  # creates stateful sandbox, outputs session id (e.g. 1)
 playwriter -s 1 -e 'await page.goto("https://example.com")'
 playwriter -s 1 -e 'console.log(await snapshot({ page }))'
@@ -138,7 +138,7 @@ Color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkboxes, peach=
 
 ### vs Playwright MCP
 
-|               | Playwright MCP    | Playwriter                        |
+|               | Playwright MCP    | Interpreter Chrome Extension      |
 | ------------- | ----------------- | --------------------------------- |
 | Browser       | Spawns new Chrome | **Uses your Chrome**              |
 | Extensions    | None              | Your existing ones                |
@@ -146,9 +146,9 @@ Color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkboxes, peach=
 | Bot detection | Always detected   | Can bypass (disconnect extension) |
 | Collaboration | Separate window   | Same browser as user              |
 
-> **Note:** Playwriter video recording is **100x more efficient than Playwright video recording**, which sends **base64 images for every frame**.
+> **Note:** Interpreter Chrome Extension video recording is **100x more efficient than Playwright video recording**, which sends **base64 images for every frame**.
 
-|                 | Playwright CLI      | Playwriter                    |
+|                 | Playwright CLI      | Interpreter Chrome Extension |
 | --------------- | ------------------- | ----------------------------- |
 | Browser         | Spawns new browser  | **Uses your Chrome**          |
 | Login state     | Fresh               | Already logged in             |
@@ -161,7 +161,7 @@ Color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkboxes, peach=
 
 ### vs BrowserMCP
 
-|               | BrowserMCP          | Playwriter               |
+|               | BrowserMCP          | Interpreter Chrome Extension |
 | ------------- | ------------------- | ------------------------ |
 | Tools         | 12+ dedicated tools | 1 `execute` tool         |
 | API           | Limited actions     | Full Playwright          |
@@ -170,7 +170,7 @@ Color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkboxes, peach=
 
 ### vs Antigravity (Jetski)
 
-|          | Jetski                       | Playwriter       |
+|          | Jetski                       | Interpreter Chrome Extension |
 | -------- | ---------------------------- | ---------------- |
 | Tools    | 17+ tools                    | 1 tool           |
 | Subagent | Spawns for each browser task | Direct execution |
@@ -178,7 +178,7 @@ Color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkboxes, peach=
 
 ### vs Claude Browser Extension
 
-|                      | Claude Extension     | Playwriter              |
+|                      | Claude Extension     | Interpreter Chrome Extension |
 | -------------------- | -------------------- | ----------------------- |
 | Agent support        | Claude only          | Any MCP client          |
 | Windows WSL          | No                   | Yes                     |
@@ -191,7 +191,7 @@ Color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkboxes, peach=
 
 ### vs Built-in Chrome CDP (`--remote-debugging-port`)
 
-|                       | Built-in CDP                          | Playwriter                   |
+|                       | Built-in CDP                          | Interpreter Chrome Extension |
 | --------------------- | ------------------------------------- | ---------------------------- |
 | Setup                 | Restart Chrome with special flags     | Click extension icon         |
 | Confirmation dialog   | Shows automation infobar agents can't dismiss | No blocking dialog   |
@@ -199,7 +199,7 @@ Color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkboxes, peach=
 | User disruption       | Banners appear mid-workflow           | Silent — no interruption     |
 | Existing session      | Must relaunch Chrome (lose state)     | Uses your running browser    |
 
-> Chrome's `--remote-debugging-port` flag shows a persistent "controlled by automated software" banner that agents cannot dismiss. It pops up in the middle of your workflow whenever you're using the browser. Playwriter runs silently — agents work autonomously without any confirmation dialogs, so you're never interrupted.
+> Chrome's `--remote-debugging-port` flag shows a persistent "controlled by automated software" banner that agents cannot dismiss. It pops up in the middle of your workflow whenever you're using the browser. Interpreter Chrome Extension runs silently — agents work autonomously without any confirmation dialogs, so you're never interrupted.
 
 ## Architecture
 
@@ -295,7 +295,7 @@ jq -r '.direction + "\t" + (.message.method // "response")' ~/.playwriter/cdp.js
 
 ## Support
 
-If Playwriter is useful to you, consider [sponsoring the project](https://github.com/sponsors/remorses).
+If Interpreter Chrome Extension is useful to you, consider [sponsoring the project](https://github.com/sponsors/remorses).
 
 ## Known Issues
 

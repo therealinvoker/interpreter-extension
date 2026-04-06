@@ -521,7 +521,7 @@ describe('Relay Navigation Tests', () => {
     expect(versionRes.status).toBe(200)
     const versionJson = (await versionRes.json()) as { webSocketDebuggerUrl: string }
     expect(versionJson).toMatchObject({
-      Browser: expect.stringContaining('Playwriter/'),
+      Browser: expect.stringContaining('InterpreterChromeExtension/'),
       'Protocol-Version': '1.3',
       webSocketDebuggerUrl: expect.stringContaining('ws://'),
     })

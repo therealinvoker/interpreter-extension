@@ -1,7 +1,7 @@
 {
   "name": "mcp-extension",
   "version": "0.0.79",
-  "description": "Playwright MCP Browser Extension",
+  "description": "Interpreter Chrome Extension",
   "private": true,
   "repository": {
     "type": "git",

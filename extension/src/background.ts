@@ -106,7 +106,7 @@ async function getExtensionIdentity(): Promise<ExtensionIdentity> {
 }
 
 const TAB_GROUP_COLOR: chrome.tabGroups.ColorEnum = 'green'
-const TAB_GROUP_TITLE = 'playwriter'
+const TAB_GROUP_TITLE = 'Interpreter'
 
 let childSessions: Map<string, { tabId: number; targetId?: string }> = new Map()
 let nextSessionId = 1
@@ -166,7 +166,7 @@ class ConnectionManager {
     }
 
     if (store.getState().connectionState === 'extension-replaced') {
-      throw new Error('Another Playwriter extension is already connected')
+      throw new Error('Another Interpreter Chrome Extension is already connected')
     }
 
     // Reuse in-progress connection attempt - prevents races between user clicks and maintain loop
@@ -466,7 +466,7 @@ class ConnectionManager {
       store.setState({
         tabs: new Map(),
         connectionState: 'extension-replaced',
-        errorText: 'Another Playwriter extension took over the connection',
+        errorText: 'Another Interpreter Chrome Extension took over the connection',
       })
       return
     }
@@ -476,7 +476,7 @@ class ConnectionManager {
       store.setState({
         tabs: new Map(),
         connectionState: 'extension-replaced',
-        errorText: 'Another Playwriter extension is actively in use',
+        errorText: 'Another Interpreter Chrome Extension is actively in use',
       })
       return
     }
@@ -582,7 +582,7 @@ class ConnectionManager {
         if (error.message === 'Extension Already In Use') {
           store.setState({
             connectionState: 'extension-replaced',
-            errorText: 'Another Playwriter extension is actively in use',
+            errorText: 'Another Interpreter Chrome Extension is actively in use',
           })
         } else {
           store.setState({ connectionState: 'idle' })
@@ -1339,7 +1339,7 @@ async function connectTab(tabId: number): Promise<void> {
     // Extension in use: set global 'extension-replaced' state to enter polling mode
     const isExtensionInUse =
       error.message === 'Extension Already In Use' ||
-      error.message === 'Another Playwriter extension is already connected'
+      error.message === 'Another Interpreter Chrome Extension is already connected'
 
     const isWsError =
       error.message === 'Server not available' ||
@@ -1354,7 +1354,7 @@ async function connectTab(tabId: number): Promise<void> {
         return {
           tabs: newTabs,
           connectionState: 'extension-replaced',
-          errorText: 'Another Playwriter extension is actively in use',
+          errorText: 'Another Interpreter Chrome Extension is actively in use',
         }
       })
     } else if (isWsError) {
@@ -1484,7 +1484,7 @@ const icons = {
       '48': '/icons/icon-gray-48.png',
       '128': '/icons/icon-gray-128.png',
     },
-    title: 'Waiting for MCP WS server...',
+    title: 'Waiting for local relay...',
     badgeText: '...',
     badgeColor: [64, 64, 64, 255] as [number, number, number, number],
   },
@@ -1495,7 +1495,7 @@ const icons = {
       '48': '/icons/icon-black-48.png',
       '128': '/icons/icon-black-128.png',
     },
-    title: 'Click to attach debugger',
+    title: 'Click to connect Interpreter',
     badgeText: '',
     badgeColor: [64, 64, 64, 255] as [number, number, number, number],
   },
@@ -1517,7 +1517,7 @@ const icons = {
       '48': '/icons/icon-gray-48.png',
       '128': '/icons/icon-gray-128.png',
     },
-    title: 'Another Playwriter extension connected - Click to retry',
+    title: 'Another Interpreter Chrome Extension connected - Click to retry',
     badgeText: '!',
     badgeColor: [220, 38, 38, 255] as [number, number, number, number],
   },
@@ -1637,7 +1637,7 @@ chrome.contextMenus
   .finally(() => {
     chrome.contextMenus?.create({
       id: 'playwriter-pin-element',
-      title: 'Copy Playwriter Element Reference',
+      title: 'Copy Interpreter Element Reference',
       contexts: ['all'],
       visible: false,
     })

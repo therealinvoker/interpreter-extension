@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Welcome to Playwriter</title>
+    <title>Welcome to Interpreter Chrome Extension</title>
     <style>
       :root {
         --color-bg: #ffffff;
@@ -275,9 +275,9 @@
   <body>
     <main>
       <section>
-        <h2>Getting Started with Playwriter</h2>
+        <h2>Getting Started with Interpreter Chrome Extension</h2>
 
-        <p>Control your browser via Playwright API. Uses extension + CLI. No context bloat.</p>
+        <p>Control your browser through Interpreter with the Playwright API. Uses the extension plus the CLI.</p>
 
         <h3>Installation</h3>
 
@@ -285,7 +285,7 @@
           <span class="step-number">1</span>
           <div class="step-content">
             <strong>Pin the extension</strong>
-            <p>Click the puzzle icon in Chrome's toolbar, then pin Playwriter so it's always visible.</p>
+            <p>Click the puzzle icon in Chrome's toolbar, then pin Interpreter Chrome Extension so it's always visible.</p>
           </div>
         </div>
 
@@ -312,8 +312,8 @@ playwriter -s 1 -e "await page.goto('https://example.com')"</code></pre>
           <span class="step-number">4</span>
           <div class="step-content">
             <strong>Add the skill to your agent</strong>
-            <p>Install the Playwriter skill so your agent can call the CLI:</p>
-            <pre><code class="language-bash"># add playwriter skill to your coding agent
+            <p>Install the browser-control skill so your agent can call the CLI:</p>
+            <pre><code class="language-bash"># add the browser-control skill to your coding agent
 npx -y skills add remorses/playwriter</code></pre>
           </div>
         </div>
@@ -356,15 +356,15 @@ playwriter -s 1 -e "await page.locator('aria-ref=e5').click()"</code></pre>
         <h2>Privacy &amp; Security</h2>
 
         <p>
-          Playwriter MCP runs locally in your browser and does not send any data to external servers. All browser
-          control happens through the standard Chrome DevTools Protocol on your machine.
+          Interpreter Chrome Extension runs locally in your browser and does not send any data to external servers.
+          All browser control happens through the standard Chrome DevTools Protocol on your machine.
         </p>
       </section>
 
       <section>
         <h2>MCP Setup (Optional)</h2>
 
-        <p>The CLI is the recommended way to use Playwriter. If you need MCP server setup, auto-configure it with:</p>
+        <p>The CLI is the recommended way to use Interpreter Chrome Extension. If you need MCP server setup, auto-configure it with:</p>
 
         <pre><code class="language-bash"># auto-configure MCP server for your editor
 npx -y @playwriter/install-mcp playwriter@latest</code></pre>
@@ -390,7 +390,7 @@ npx -y @playwriter/install-mcp playwriter@latest</code></pre>
       </section>
 
       <footer>
-        <p>Playwriter &copy; Microsoft Corporation &middot; Licensed under Apache-2.0</p>
+        <p>Interpreter Chrome Extension &middot; Licensed under Apache-2.0</p>
       </footer>
     </main>
     <script src="prism.min.js"></script>

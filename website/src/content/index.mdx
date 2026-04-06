@@ -1,6 +1,6 @@
 <Hero className='my-16'>
 
-<h1 className='text-2xl my-3 font-semibold text-center'>playwriter</h1>
+<h1 className='text-2xl my-3 font-semibold text-center'>Interpreter Chrome Extension</h1>
 
 <p className='text-center'>CLI & MCP for agent browser automation</p>
 
@@ -8,7 +8,7 @@
 
 <Aside>
 
-If you like **Playwriter** please
+If you like **Interpreter Chrome Extension** please
 [star on GitHub](https://github.com/remorses/playwriter). It helps give more visibility to the project!
 
 </Aside>
@@ -19,7 +19,7 @@ logins, extensions, and cookies already there. No headless instance, no bot dete
 <Bleed>
   <PixelatedImage
     src='/screenshot@2x.png'
-    alt='Playwriter controlling Chrome with accessibility labels overlay'
+    alt='Interpreter Chrome Extension controlling Chrome with accessibility labels overlay'
     width={1280}
     height={800}
   />
@@ -32,7 +32,7 @@ means no logins, no extensions, instant bot detection, and double the memory. Fi
 can't profile performance, can't set breakpoints, can't intercept network requests — it can
 only do what someone decided to expose.
 
-Playwriter gives agents the **full Playwright API** through a single `execute` tool. One
+Interpreter Chrome Extension gives agents the **full Playwright API** through a single `execute` tool. One
 tool, any Playwright code, no wrappers. Low context usage because there's no schema bloat from dozens of
 tool definitions. And it runs in your existing browser, so **nothing extra gets spawned**.
 
@@ -42,7 +42,7 @@ tool definitions. And it runs in your existing browser, so **nothing extra gets 
 
 <Aside>
 
-**Requirements:** Chrome or Chromium installed, Node.js 18+, and a Playwriter-compatible agent (OpenCode, Cursor, Claude Code, etc).
+**Requirements:** Chrome or Chromium installed, Node.js 18+, and an agent that can drive Playwright through the CLI (OpenCode, Cursor, Claude Code, etc).
 
 </Aside>
 
@@ -53,13 +53,13 @@ tool definitions. And it runs in your existing browser, so **nothing extra gets 
 
 ### Install CLI + skill
 
-Install the CLI, then add the skill so your agent knows the good Playwriter workflows.
+Install the CLI, then add the skill so your agent knows the recommended Interpreter Chrome Extension workflows.
 
 ```bash
 npm i -g playwriter
 ```
 
-Then install the **skill** — it teaches your agent how to use Playwriter: which
+Then install the **skill** — it teaches your agent how to use the extension workflow: which
 selectors to use, how to avoid timeouts, how to read snapshots, and all available utilities.
 
 ```bash
@@ -286,7 +286,7 @@ Why use this over the alternatives.
 
 <ComparisonTable
   title='vs Playwright MCP'
-  headers={['', 'Playwright MCP', 'Playwriter']}
+  headers={['', 'Playwright MCP', 'Interpreter Chrome Extension']}
   rows={[
     ['Browser', 'Spawns new Chrome', 'Uses your Chrome'],
     ['Extensions', 'None', 'Your existing ones'],
@@ -298,7 +298,7 @@ Why use this over the alternatives.
 
 <ComparisonTable
   title='vs Playwright CLI'
-  headers={['', 'Playwright CLI', 'Playwriter']}
+  headers={['', 'Playwright CLI', 'Interpreter Chrome Extension']}
   rows={[
     ['Browser', 'Spawns new browser', 'Uses your Chrome'],
     ['Login state', 'Fresh', 'Already logged in'],
@@ -313,7 +313,7 @@ Why use this over the alternatives.
 
 <ComparisonTable
   title='vs BrowserMCP'
-  headers={['', 'BrowserMCP', 'Playwriter']}
+  headers={['', 'BrowserMCP', 'Interpreter Chrome Extension']}
   rows={[
     ['Tools', '12+ dedicated tools', '1 execute tool'],
     ['API', 'Limited actions', 'Full Playwright'],
@@ -324,7 +324,7 @@ Why use this over the alternatives.
 
 <ComparisonTable
   title='vs Claude Browser Extension'
-  headers={['', 'Claude Extension', 'Playwriter']}
+  headers={['', 'Claude Extension', 'Interpreter Chrome Extension']}
   rows={[
     ['Agent support', 'Claude only', 'Any MCP client'],
     ['Windows WSL', 'No', 'Yes'],
@@ -339,7 +339,7 @@ Why use this over the alternatives.
 
 <ComparisonTable
   title='vs Built-in Chrome CDP (--remote-debugging-port)'
-  headers={['', 'Built-in CDP', 'Playwriter']}
+  headers={['', 'Built-in CDP', 'Interpreter Chrome Extension']}
   rows={[
     ['Setup', 'Restart Chrome with special flags', 'Click extension icon'],
     ['Confirmation dialog', 'Automation infobar agents can\'t dismiss', 'No blocking dialog'],
@@ -381,6 +381,6 @@ Everything runs **on your machine**. The relay binds to `localhost:19988` and on
 accepts connections from the extension. No remote server, no account, no telemetry.
 
 - **Local only** — WebSocket server binds to localhost. Nothing leaves your machine.
-- **Origin validation** — only the Playwriter extension origin is accepted. Browsers cannot spoof the Origin header, so malicious websites cannot connect.
+- **Origin validation** — only the Interpreter Chrome Extension origin is accepted. Browsers cannot spoof the Origin header, so malicious websites cannot connect.
 - **Explicit consent** — only tabs where you clicked the extension icon are controlled. No background access.
 - **Visible automation** — Chrome shows an automation banner on controlled tabs.

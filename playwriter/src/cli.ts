@@ -39,7 +39,7 @@ const cliRelayEnv = { PLAYWRITER_AUTO_ENABLE: '1' }
 const cli = goke('playwriter')
 
 cli
-  .command('browser start [binaryPath]', 'Start Chromium or Chrome for Testing with the bundled Playwriter extension')
+  .command('browser start [binaryPath]', 'Start Chromium or Chrome for Testing with the bundled Interpreter Chrome Extension')
   .hidden()
   .option('--user-data-dir <dir>', 'Persistent browser profile directory used for the managed browser')
   .option('--headless', 'Run the browser in headless mode')
@@ -85,7 +85,7 @@ cli
         console.log('  Permissions: recording/tabCapture flags enabled')
 
         if (connectedExtensions.length > 0) {
-          console.log('Playwriter extension connected to the relay server.')
+          console.log('Interpreter Chrome Extension connected to the relay server.')
           return
         }
 
@@ -103,7 +103,7 @@ cli
   .option('--host <host>', 'Remote relay server host to connect to (or use PLAYWRITER_HOST env var)')
   .option('--token <token>', 'Authentication token (or use PLAYWRITER_TOKEN env var)')
   .option('-s, --session <name>', 'Session ID (required for -e, get one with `playwriter session new`)')
-  .option('-e, --eval <code>', 'Execute JavaScript code and exit, read https://playwriter.dev/SKILL.md for usage')
+  .option('-e, --eval <code>', 'Execute JavaScript code and exit. Use the bundled browser-control usage guide for best practices.')
   .option('--timeout [ms]', z.number().default(10000).describe('Execution timeout in milliseconds'))
   .action(async (options) => {
     // If -e flag is provided, execute code via relay server
@@ -293,7 +293,7 @@ async function executeCode(options: {
   } catch (error: any) {
     if (error.cause?.code === 'ECONNREFUSED') {
       console.error('Error: Cannot connect to relay server.')
-      console.error('The Playwriter relay server should start automatically. Check logs at:')
+      console.error('The Interpreter Chrome Extension relay should start automatically. Check logs at:')
       console.error(`  ${LOG_FILE_PATH}`)
     } else {
       console.error(`Error: ${error.message}`)
@@ -426,7 +426,7 @@ cli
     }
 
     if (extensions.length === 0) {
-      console.error('No connected browsers detected. Click the Playwriter extension icon.')
+      console.error('No connected browsers detected. Click the Interpreter Chrome Extension icon.')
       console.error(pc.dim('Tip: Use --direct to connect via Chrome DevTools Protocol instead.'))
       process.exit(1)
     }
@@ -805,7 +805,7 @@ cli
 
     if (isPortInUse) {
       if (!options.replace) {
-        console.log(`Playwriter server is already running on port ${RELAY_PORT}`)
+        console.log(`Interpreter Chrome Extension relay is already running on port ${RELAY_PORT}`)
         console.log('Tip: Use --replace to kill the existing server and start a new one.')
         process.exit(0)
       }
@@ -840,7 +840,7 @@ cli
       logger,
     })
 
-    console.log('Playwriter CDP relay server started')
+    console.log('Interpreter Chrome Extension relay started')
     console.log(`  Host: ${options.host}`)
     console.log(`  Port: ${RELAY_PORT}`)
     console.log(`  Token: ${token ? '(configured)' : '(none)'}`)
@@ -897,7 +897,7 @@ cli
 
     if (allOptions.length === 0) {
       console.log('No browsers detected.\n')
-      console.log('  Extension: click the Playwriter icon on a tab to connect')
+      console.log('  Extension: click the Interpreter Chrome Extension icon on a tab to connect')
       console.log('  Direct:    open chrome://inspect/#remote-debugging in Chrome')
       return
     }
@@ -921,8 +921,8 @@ cli.command('logfile', 'Print the path to the relay server log file').action(() 
   console.log(`cdp: ${LOG_CDP_FILE_PATH}`)
 })
 
-cli.command('skill', 'Print the full playwriter usage instructions').action(() => {
-  const skillPath = path.join(__dirname, '..', 'src', 'skill.md')
+cli.command('skill', 'Print the full browser-control usage instructions').action(() => {
+  const skillPath = path.join(__dirname, 'skill.md')
   const content = fs.readFileSync(skillPath, 'utf-8')
   console.log(content)
 })

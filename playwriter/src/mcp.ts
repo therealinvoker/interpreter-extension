@@ -178,13 +178,13 @@ async function checkRemoteServer({ host, port }: { host: string; port: number })
 
 const server = new McpServer({
   name: 'playwriter',
-  title: 'The better playwright MCP: works as a browser extension. No context bloat. More capable.',
+  title: 'Interpreter Chrome Extension MCP: use your real browser without context bloat.',
   version: VERSION,
 })
 
 const promptContent =
   fs.readFileSync(path.join(__dirname, '..', 'dist', 'prompt.md'), 'utf-8') +
-  `\n\nfor debugging internal playwriter errors, check playwriter relay server logs at: ${LOG_FILE_PATH}`
+  `\n\nfor debugging internal browser-control errors, check the Interpreter Chrome Extension relay logs at: ${LOG_FILE_PATH}`
 
 server.resource(
   'debugger-api',

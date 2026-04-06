@@ -196,7 +196,7 @@ export function getExtensionOutdatedWarning(extensionPlaywriterVersion: string |
     return null
   }
   if (compareVersions(extensionPlaywriterVersion, VERSION) > 0) {
-    return `Playwriter ${VERSION} is outdated (extension requires ${extensionPlaywriterVersion}). Run \`npm install -g playwriter@latest\` or update the playwriter package in your project.`
+    return `The local CLI/runtime (${VERSION}) is outdated for Interpreter Chrome Extension ${extensionPlaywriterVersion}. Run \`npm install -g playwriter@latest\` or update the CLI package in your project.`
   }
   return null
 }

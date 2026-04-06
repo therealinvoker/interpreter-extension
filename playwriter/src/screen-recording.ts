@@ -317,9 +317,9 @@ export async function startRecording(options: StartRecordingOptions): Promise<Re
       const restartCmd = getChromeRestartCommand()
       throw new Error(
         `Failed to start recording: ${errorMsg}\n\n` +
-          `For automated recording, start a managed Playwriter browser with the bundled extension loaded:\n\n` +
+          `For automated recording, start a managed browser with Interpreter Chrome Extension loaded:\n\n` +
           `  ${restartCmd}\n\n` +
-          `Or click the Playwriter extension icon on the tab once to grant permission.`,
+          `Or click the Interpreter Chrome Extension icon on the tab once to grant permission.`,
       )
     }
 

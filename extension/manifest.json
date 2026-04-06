@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Playwriter",
+  "name": "Interpreter Chrome Extension",
   "version": "0.0.79",
-  "description": "Automate your Browser using Cursor, Claude, VS Code. More capable and context efficient than Playwright MCP.",
+  "description": "Connect Interpreter to your existing Chrome tabs without launching a separate browser.",
   "permissions": [
     "debugger",
     "scripting",
@@ -20,7 +20,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Click to attach debugger",
+    "default_title": "Click to connect Interpreter",
     "default_icon": {
       "16": "icons/icon-gray-16.png",
       "32": "icons/icon-gray-32.png",
