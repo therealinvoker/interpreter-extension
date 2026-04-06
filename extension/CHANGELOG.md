@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.80
+
+### Bug Fixes
+
+- **Normalize Vite static-copy paths for Windows builds**: Convert extension asset source paths to POSIX-style globs before handing them to `vite-plugin-static-copy`. This fixes Windows package builds failing to copy `extension/icons/*`.
+
 ## 0.0.79
 
 ### Bug Fixes
