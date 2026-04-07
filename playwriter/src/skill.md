@@ -70,8 +70,6 @@ const otherProfilePage = contexts[1].pages()[0]
 
 `browser.contexts()` only makes sense when using `--direct`. in extension mode there is just one context for each session.
 
-**Limitations:** screen recording (`recording.start/stop`) is unavailable in direct mode.
-
 ### Execute code
 
 ```bash
@@ -170,19 +168,6 @@ start chrome.exe --profile-directory=Default
 
 # Windows (PowerShell)
 Start-Process chrome.exe -ArgumentList '--profile-directory=Default'
-```
-
-To also enable automatic tab capture for screen recording (no manual extension click needed), add the `--allowlisted-extension-id` and `--auto-accept-this-tab-capture` flags:
-
-```bash
-# macOS
-open -a "Google Chrome" --args --profile-directory=Default --allowlisted-extension-id=jfeammnjpkecdekppnclgkkffahnhfhe --auto-accept-this-tab-capture
-
-# Linux
-google-chrome --profile-directory=Default --allowlisted-extension-id=jfeammnjpkecdekppnclgkkffahnhfhe --auto-accept-this-tab-capture &
-
-# Windows
-start chrome.exe --profile-directory=Default --allowlisted-extension-id=jfeammnjpkecdekppnclgkkffahnhfhe --auto-accept-this-tab-capture
 ```
 
 You can collaborate with the user - they can help with captchas, difficult elements, or reproducing bugs.
@@ -807,51 +792,11 @@ Labels are color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkbo
 
 **resizeImageForAgent** - shrink an image so it consumes fewer tokens when read back into context. The resized image is automatically included in the response (visible to the LLM). `await resizeImageForAgent({ input: './screenshot.png' })`. Also accepts `width`, `height`, `maxDimension`, `quality`, `format` (default: `'png'`), `output`. Alias: `resizeImage`.
 
-**recording.start / recording.stop** - record the page as a video at native FPS (30-60fps). Uses `chrome.tabCapture` so **recording survives page navigation**. Auto-overlays a ghost cursor that follows mouse actions. Requires the user to have clicked the Interpreter Chrome Extension icon on the tab. Auto-resizes viewport to 16:9 (override with `aspectRatio: null`). Auto-stops after 15 min (override with `maxDurationMs`).
-
-For demos, use interaction methods (`locator.click()`, `page.mouse.move()`) instead of `goto()` to show realistic cursor motion.
-
-```js
-await recording.start({
-  page: state.page,
-  outputPath: './recording.mp4',
-  frameRate: 30, // default
-  audio: false, // default (tab audio)
-  videoBitsPerSecond: 2500000,
-  aspectRatio: { width: 16, height: 9 }, // default, set null to skip
-  maxDurationMs: 15 * 60 * 1000, // default, set 0 to disable
-})
-
-// Recording survives navigation
-await state.page.click('a')
-await state.page.waitForLoadState('domcontentloaded')
-
-// Stop — save full result including executionTimestamps for createDemoVideo
-state.recordingResult = await recording.stop({ page: state.page })
-
-// Other: recording.isRecording({ page }), recording.cancel({ page })
-```
-
 **ghostCursor.show / ghostCursor.hide** - show/hide cursor overlay for screenshots and demos:
 
 ```js
 await ghostCursor.show({ page: state.page, style: 'minimal' }) // 'minimal', 'dot', 'screenstudio'
 await ghostCursor.hide({ page: state.page })
-```
-
-**createDemoVideo** - speeds up idle sections (time between execute() calls) while keeping interactions at normal speed. Requires `ffmpeg`/`ffprobe`. Timestamps are tracked automatically during recording and returned by `recording.stop()`. **Timeout**: can take 60–120+ seconds, always pass `--timeout 120000` or higher.
-
-```js
-// After recording.stop(), save full result to state (executionTimestamps powers idle detection)
-state.recordingResult = await recording.stop({ page: state.page })
-
-// In a SEPARATE execute call with --timeout 120000:
-const demoPath = await createDemoVideo({
-  recordingPath: state.recordingResult.path,
-  durationMs: state.recordingResult.duration,
-  executionTimestamps: state.recordingResult.executionTimestamps,
-  speed: 6, // default 6x for idle sections
-})
 ```
 
 ## pinned elements

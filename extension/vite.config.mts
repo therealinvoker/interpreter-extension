@@ -64,12 +64,11 @@ export default defineConfig({
 
   build: {
     outDir,
-    emptyOutDir: false,
+    emptyOutDir: true,
     minify: false,
     rollupOptions: {
       input: {
         background: resolve(__dirname, 'src/background.ts'),
-        offscreen: resolve(__dirname, 'src/offscreen.html'),
         welcome: resolve(__dirname, 'src/welcome.html'),
       },
       output: {

@@ -49,7 +49,7 @@ Each session has **isolated state**. Browser tabs are **shared** across sessions
 
 ```bash
 # Browser management
-playwriter browser start             # auto-finds Chrome for Testing or Chromium, with recording flags enabled
+playwriter browser start             # auto-finds Chrome for Testing or Chromium with the bundled extension
 playwriter browser start /path/to/browser-binary
 
 # Session management
@@ -146,8 +146,6 @@ Color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkboxes, peach=
 | Bot detection | Always detected   | Can bypass (disconnect extension) |
 | Collaboration | Separate window   | Same browser as user              |
 
-> **Note:** Interpreter Chrome Extension video recording is **100x more efficient than Playwright video recording**, which sends **base64 images for every frame**.
-
 |                 | Playwright CLI      | Interpreter Chrome Extension |
 | --------------- | ------------------- | ----------------------------- |
 | Browser         | Spawns new browser  | **Uses your Chrome**          |
@@ -157,7 +155,6 @@ Color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkboxes, peach=
 | Collaboration   | Separate window     | Same browser as user          |
 | Capabilities    | Limited command set | Anything Playwright can do    |
 | Raw CDP access  | No                  | Yes                           |
-| Video recording | File-based tracing  | Native tab capture (30–60fps) |
 
 ### vs BrowserMCP
 

@@ -36,8 +36,8 @@ function makeTargetInfo(overrides: Partial<Protocol.Target.TargetInfo> = {}): Pr
 
 function stateWithExtension(
   extensionId = 'ext-1',
-  info: relayState.ExtensionInfo = { browser: 'Chrome' },
-  stableKey = 'profile:chrome-1',
+  info: relayState.ExtensionInfo = { browser: 'Chrome', installId: 'install-1' },
+  stableKey = 'install:install-1',
 ): relayState.RelayState {
   return relayState.addExtension(emptyState(), { id: extensionId, info, stableKey, ws: fakeWs() })
 }
@@ -64,14 +64,14 @@ describe('addExtension', () => {
     const before = emptyState()
     const after = relayState.addExtension(before, {
       id: 'ext-1',
-      info: { browser: 'Chrome' },
-      stableKey: 'profile:chrome-1',
+      info: { browser: 'Chrome', installId: 'install-1' },
+      stableKey: 'install:install-1',
       ws: fakeWs(),
     })
 
     expect(after.extensions.size).toBe(1)
     const ext = after.extensions.get('ext-1')!
-    expect(ext.stableKey).toBe('profile:chrome-1')
+    expect(ext.stableKey).toBe('install:install-1')
     expect(ext.connectedTargets.size).toBe(0)
     expect(ext.ws).toBeTruthy()
     expect(ext.messageId).toBe(0)
@@ -84,14 +84,14 @@ describe('addExtension', () => {
   test('adding extension with same stableKey keeps old entry (removed on socket close)', () => {
     const s1 = relayState.addExtension(emptyState(), {
       id: 'ext-old',
-      info: { browser: 'Chrome' },
-      stableKey: 'profile:chrome-1',
+      info: { browser: 'Chrome', installId: 'install-1' },
+      stableKey: 'install:install-1',
       ws: fakeWs(),
     })
     const s2 = relayState.addExtension(s1, {
       id: 'ext-new',
-      info: { browser: 'Chrome', email: 'test@example.com' },
-      stableKey: 'profile:chrome-1',
+      info: { browser: 'Chrome', installId: 'install-1' },
+      stableKey: 'install:install-1',
       ws: fakeWs(),
     })
 
@@ -100,15 +100,15 @@ describe('addExtension', () => {
     expect(s2.extensions.has('ext-old')).toBe(true)
     expect(s2.extensions.has('ext-new')).toBe(true)
     // findExtensionByStableKey returns newest
-    expect(relayState.findExtensionByStableKey(s2, 'profile:chrome-1')?.id).toBe('ext-new')
+    expect(relayState.findExtensionByStableKey(s2, 'install:install-1')?.id).toBe('ext-new')
     // Original unchanged
     expect(s1.extensions.size).toBe(1)
   })
 
   test('allows multiple extensions with different stableKeys', () => {
     let state = emptyState()
-    state = relayState.addExtension(state, { id: 'ext-1', info: { browser: 'Chrome' }, stableKey: 'profile:a', ws: fakeWs() })
-    state = relayState.addExtension(state, { id: 'ext-2', info: { browser: 'Firefox' }, stableKey: 'profile:b', ws: fakeWs() })
+    state = relayState.addExtension(state, { id: 'ext-1', info: { browser: 'Chrome', installId: 'install-a' }, stableKey: 'install:install-a', ws: fakeWs() })
+    state = relayState.addExtension(state, { id: 'ext-2', info: { browser: 'Firefox', installId: 'install-b' }, stableKey: 'install:install-b', ws: fakeWs() })
 
     expect(state.extensions.size).toBe(2)
   })

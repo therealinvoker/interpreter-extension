@@ -8,7 +8,6 @@ export interface TabInfo {
   errorText?: string
   pinnedCount?: number
   attachOrder?: number
-  isRecording?: boolean
 }
 
 export interface ExtensionState {
@@ -16,13 +15,4 @@ export interface ExtensionState {
   connectionState: ConnectionState
   currentTabId: number | undefined
   errorText: string | undefined
-}
-
-/**
- * Recording state - stored in service worker to track active recordings.
- * The actual MediaRecorder/MediaStream live in the offscreen document.
- */
-export interface RecordingInfo {
-  tabId: number
-  startedAt: number
 }

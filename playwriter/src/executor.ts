@@ -34,8 +34,6 @@ import { createGhostBrowserChrome, type GhostBrowserCommandResult } from './ghos
 export type { SnapshotFormat }
 import { getCleanHTML, type GetCleanHTMLOptions } from './clean-html.js'
 import { getPageMarkdown, type GetPageMarkdownOptions } from './page-markdown.js'
-import { createRecordingApi } from './screen-recording.js'
-import { createDemoVideo } from './ffmpeg.js'
 import { type GhostCursorClientOptions } from './ghost-cursor.js'
 import { RecordingGhostCursorController } from './recording-ghost-cursor.js'
 
@@ -293,12 +291,6 @@ export class PlaywrightExecutor {
   private warningEvents: WarningEvent[] = []
   private nextWarningEventId = 0
   private lastDeliveredWarningEventId = 0
-
-  // Recording timestamp tracking: when recording is active, each execute()
-  // call pushes {start, end} (seconds relative to recordingStartedAt).
-  // Returned by stopRecording() so the model can speed up idle sections.
-  private recordingStartedAt: number | null = null
-  private executionTimestamps: Array<{ start: number; end: number }> = []
   private activeWarningScopes = new Set<WarningScope>()
   private pagesWithListeners = new WeakSet<Page>()
   private suppressPageCloseWarnings = false
@@ -1052,12 +1044,8 @@ export class PlaywrightExecutor {
         })
       }
 
-      // Screen recording functions (via chrome.tabCapture in extension - survives navigation)
-      // Recording uses chrome.tabCapture which requires activeTab permission.
-      // This permission is granted when the user clicks the Interpreter Chrome Extension icon on a tab.
-      const relayPort = this.cdpConfig.port || 19988
       const self = this
-      const recordingGhostCursor = new RecordingGhostCursorController({
+      const ghostCursorController = new RecordingGhostCursorController({
         logger: {
           error: (...args: unknown[]) => {
             self.logger.error(...args)
@@ -1076,31 +1064,13 @@ export class PlaywrightExecutor {
           return rest
         })()
 
-        await recordingGhostCursor.show({ page: targetPage, cursorOptions })
+        await ghostCursorController.show({ page: targetPage, cursorOptions })
       }
 
       const hideGhostCursor = async (options?: { page?: Page }) => {
         const targetPage = options?.page || page
-        await recordingGhostCursor.hide({ page: targetPage })
+        await ghostCursorController.hide({ page: targetPage })
       }
-
-      const recordingApi = createRecordingApi({
-        context,
-        defaultPage: page,
-        relayPort,
-        ghostCursorController: recordingGhostCursor,
-        onStart: () => {
-          self.recordingStartedAt = Date.now()
-          self.executionTimestamps = []
-        },
-        onFinish: () => {
-          self.recordingStartedAt = null
-          self.executionTimestamps = []
-        },
-        getExecutionTimestamps: () => {
-          return self.executionTimestamps
-        },
-      })
 
       // Ghost Browser API - creates chrome object that mirrors Ghost Browser's APIs
       // See extension/src/ghost-browser-api.d.ts for full API documentation
@@ -1143,18 +1113,6 @@ export class PlaywrightExecutor {
           show: showGhostCursor,
           hide: hideGhostCursor,
         },
-        recording: {
-          start: recordingApi.start,
-          stop: recordingApi.stop,
-          isRecording: recordingApi.isRecording,
-          cancel: recordingApi.cancel,
-        },
-        // Backward-compatible aliases
-        startRecording: recordingApi.start,
-        stopRecording: recordingApi.stop,
-        isRecording: recordingApi.isRecording,
-        cancelRecording: recordingApi.cancel,
-        createDemoVideo,
         resetPlaywright: async () => {
           const { page: newPage, context: newContext } = await self.reset()
           vmContextObj.page = newPage
@@ -1175,32 +1133,10 @@ export class PlaywrightExecutor {
         ? `(async () => { return await (${autoReturnExpr}) })()`
         : `(async () => { ${code} })()`
       const hasExplicitReturn = autoReturnExpr !== null || /\breturn\b/.test(code)
-
-      // Track execution timestamps relative to recording start (seconds).
-      // Used to identify idle gaps that can be sped up in demo videos.
-      // Captured before execution so we can record timing even if it throws.
-      const recordingStartSnapshot = this.recordingStartedAt
-      const execStartSec = recordingStartSnapshot !== null
-        ? (Date.now() - recordingStartSnapshot) / 1000
-        : -1
-
-      const result = await (async () => {
-        try {
-          return await Promise.race([
-            vm.runInContext(wrappedCode, vmContext, { timeout, displayErrors: true }),
-            new Promise((_, reject) => setTimeout(() => reject(new CodeExecutionTimeoutError(timeout)), timeout)),
-          ])
-        } finally {
-          // Record timestamp even on error — the execution still occupied real time
-          // that should not be sped up in the demo video.
-          // Compare against snapshot to avoid cross-session contamination if
-          // recording was stopped and restarted inside the same execute() call.
-          if (recordingStartSnapshot !== null && execStartSec >= 0 && this.recordingStartedAt === recordingStartSnapshot) {
-            const execEndSec = (Date.now() - recordingStartSnapshot) / 1000
-            this.executionTimestamps.push({ start: execStartSec, end: execEndSec })
-          }
-        }
-      })()
+      const result = await Promise.race([
+        vm.runInContext(wrappedCode, vmContext, { timeout, displayErrors: true }),
+        new Promise((_, reject) => setTimeout(() => reject(new CodeExecutionTimeoutError(timeout)), timeout)),
+      ])
 
       let responseText = formatConsoleLogs(consoleLogs)
 

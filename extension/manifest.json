@@ -8,11 +8,7 @@
     "scripting",
     "tabGroups",
     "contextMenus",
-    "tabs",
-    "tabCapture",
-    "offscreen",
-    "identity",
-    "identity.email"
+    "tabs"
   ],
   "host_permissions": ["<all_urls>"],
   "background": {

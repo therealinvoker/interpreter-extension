@@ -19,7 +19,6 @@ export type ExtensionStatus = {
   extensionId: string
   stableKey?: string
   browser: string | null
-  profile: { email: string; id: string } | null
   activeTargets: number
   playwriterVersion: string | null
   targets?: Array<{
@@ -83,7 +82,6 @@ export async function getExtensionsStatus(port: number = RELAY_PORT): Promise<Ex
         connected: boolean
         activeTargets: number
         browser: string | null
-        profile: { email: string; id: string } | null
         playwriterVersion?: string | null
         targets?: Array<{ targetId: string; type: string; title: string; url: string }>
       }
@@ -97,7 +95,6 @@ export async function getExtensionsStatus(port: number = RELAY_PORT): Promise<Ex
           extensionId: 'default',
           stableKey: undefined,
           browser: fallbackData.browser,
-          profile: fallbackData.profile,
           activeTargets: fallbackData.activeTargets,
           playwriterVersion: fallbackData.playwriterVersion || null,
           targets: fallbackData.targets || [],

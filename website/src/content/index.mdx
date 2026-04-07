@@ -255,31 +255,6 @@ playwriter -e "page.evaluate(async (url) => { const res = await fetch(url); retu
 and replays them with different parameters. Works for pagination, authenticated endpoints, and anything behind
 client-side rendering.
 
-## Screen recording
-
-Have the agent **record what it's doing** as MP4 video. The recording uses
-`chrome.tabCapture` and runs in the extension context, so it
-**survives page navigation**.
-
-```bash
-# Start recording
-playwriter -e "startRecording({ page, outputPath: './recording.mp4', frameRate: 30 })"
-
-# Navigate, interact — recording continues
-playwriter -e "page.click('a'); page.waitForLoadState('domcontentloaded')"
-playwriter -e "page.goBack()"
-
-# Stop and save
-playwriter -e "stopRecording({ page })"
-```
-
-Unlike `getDisplayMedia`, this approach
-**persists across navigations** because the extension holds the `MediaRecorder`, not
-the page. You can also check recording status with `isRecording` or cancel without saving with
-`cancelRecording`.
-
-<Caption>Native tab capture. 30–60fps. Survives navigation.</Caption>
-
 ## Comparison
 
 Why use this over the alternatives.
@@ -307,7 +282,6 @@ Why use this over the alternatives.
     ['Collaboration', 'Separate window', 'Same browser as user'],
     ['Capabilities', 'Limited command set', 'Anything Playwright can do'],
     ['Raw CDP access', 'No', 'Yes'],
-    ['Video recording', 'File-based tracing', 'Native tab capture (30–60fps)'],
   ]}
 />
 
