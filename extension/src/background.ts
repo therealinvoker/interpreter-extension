@@ -1390,7 +1390,7 @@ async function resetDebugger(): Promise<void> {
 
 // Our extension IDs - allow attaching to our own extension pages for debugging
 const OUR_EXTENSION_IDS = [
-  'jfeammnjpkecdekppnclgkkffahnhfhe', // Production extension (Chrome Web Store)
+  'bboaaphdpllilofamfpommlbafpellnb', // Production extension (Chrome Web Store)
   'pebbngnfojnignonigcnkdilknapkgid', // Dev extension (stable ID from manifest key)
 ]
 

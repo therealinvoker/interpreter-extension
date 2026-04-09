@@ -31,7 +31,11 @@ export default defineConfig({
       targets: [
         {
           // vite-plugin-static-copy expects POSIX-style glob paths on Windows.
-          src: copySource('icons/*'),
+          src: copySource('icons/icon-*.png'),
+          dest: 'icons',
+        },
+        {
+          src: copySource('icons/GENERATED-FROM-APP-ICON.txt'),
           dest: 'icons',
         },
 

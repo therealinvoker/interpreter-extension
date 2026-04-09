@@ -3,9 +3,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// Playwriter extension IDs - used for validation and Chrome flag commands
+// Extension IDs used for validation and Chrome flag commands.
 export const EXTENSION_IDS = [
-  'jfeammnjpkecdekppnclgkkffahnhfhe', // Production (Chrome Web Store)
+  'bboaaphdpllilofamfpommlbafpellnb', // Production (Chrome Web Store)
   'pebbngnfojnignonigcnkdilknapkgid', // Dev extension (stable ID from manifest key)
 ]
 

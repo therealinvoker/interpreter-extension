@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.0.86
+
+### Changes
+
+- **Switch the post-install page to a side-by-side layout**: Reduced the hero size and moved the setup steps into a separate right column so the page reads more like a compact utility screen.
+
+## 0.0.85
+
+### Changes
+
+- **Align the post-install page with the actual tab-click flow**: Reworked `welcome.html` into a more useful centered setup sheet that explicitly says the extension turns on the current tab and can be clicked again to turn that tab off.
+
+## 0.0.84
+
+### Changes
+
+- **Collapse the post-install page to one centered instruction**: Reduced `welcome.html` to the minimum needed action and added stricter reduction guidance to the local `interpreter-design` skill for install/help surfaces.
+
+## 0.0.83
+
+### Changes
+
+- **Reduce the post-install page to the essential app flow**: Applied the local `interpreter-design` guidance by simplifying the page to one quiet column, one clear action, thin dividers, and plain language for non-technical users.
+
+## 0.0.82
+
+### Changes
+
+- **Restyle the post-install page around the local Interpreter visual language**: Replaced the generic glass-card welcome screen with a more editorial, industrial "field guide" layout that matches the local extension/site branding while keeping the corrected app-first setup instructions.
+
+## 0.0.81
+
+### Bug Fixes
+
+- **Rewrite the welcome page for the Interpreter app flow**: The post-install page now tells users to open the Interpreter desktop app, expose a tab through the extension, and verify the connection in `Settings > Browser`. The old Playwriter CLI, skill, MCP, and GitHub instructions are gone.
+- **Stop shipping stale cursor-brand assets**: The extension build now only copies the approved Interpreter icon set into the packaged output, preventing leftover Playwriter cursor assets from leaking into release bundles.
+- **Point production extension detection at the Interpreter store listing**: The extension now recognizes the live Interpreter Chrome Web Store ID instead of the old Playwriter production ID.
+
 ## 0.0.80
 
 ### Bug Fixes

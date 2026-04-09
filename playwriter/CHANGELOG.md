@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.104
+
+1. **Production extension allowlists now use the Interpreter Chrome Web Store ID** - the relay-side extension ID list and security coverage now target the live Interpreter listing (`bboaaphdpllilofamfpommlbafpellnb`) instead of the old Playwriter production ID.
+
 ## 0.0.103
 
 1. **Auto-returned Playwright handles are silently skipped** (#82). `await page.goto(url)` and similar single-expression code previously dumped the Playwright Response object, which is useless output — it's a programmatic handle, not display data. That same dump also leaked every process env var because `util.inspect` traversed `_connection._platform.env` at depth 4 (secrets, API keys, tokens). The CLI now skips return values that are Playwright handles (Response, Page, Browser, Request, Frame, BrowserContext, etc.) entirely. Return specific fields (`return response.url()`) or `console.log(response)` to see data.

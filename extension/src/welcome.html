@@ -3,271 +3,147 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Welcome to Interpreter Chrome Extension</title>
+    <meta name="color-scheme" content="dark light" />
+    <title>Interpreter Chrome Extension</title>
     <style>
       :root {
-        --color-bg: #ffffff;
-        --color-text: #262626;
-        --color-heading: #171717;
-        --color-border: #d4d4d4;
-        --color-code-bg: transparent;
-        --color-link: #0969da;
-        --color-link-hover: #0550ae;
-        --color-success: #16a34a;
-        --color-muted: #737373;
-        --max-width: 640px;
-        --spacing: 1.5rem;
+        --bg: #ffffff;
+        --text: #111111;
+        --muted: #666666;
+        --border: rgba(17, 17, 17, 0.12);
       }
 
       @media (prefers-color-scheme: dark) {
         :root {
-          --color-bg: #0a0a0a;
-          --color-text: #e5e5e5;
-          --color-heading: #fafafa;
-          --color-border: #404040;
-          --color-code-bg: transparent;
-          --color-link: #4493f8;
-          --color-link-hover: #539bf5;
-          --color-success: #22c55e;
-          --color-muted: #a3a3a3;
+          --bg: #121212;
+          --text: #f5f5f5;
+          --muted: #a3a3a3;
+          --border: rgba(255, 255, 255, 0.12);
         }
       }
 
       * {
-        margin: 0;
-        padding: 0;
         box-sizing: border-box;
       }
 
       body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
-        font-size: 16px;
-        line-height: 1.6;
-        color: var(--color-text);
-        background-color: var(--color-bg);
-        padding: 2rem 1rem;
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 40px;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       }
 
       main {
-        max-width: var(--max-width);
-        margin: 0 auto;
+        width: min(980px, 100%);
+        display: grid;
+        grid-template-columns: minmax(0, 1.05fr) minmax(320px, 420px);
+        gap: min(8vw, 88px);
+        align-items: center;
       }
 
-      h2 {
-        font-size: 1.75rem;
-        font-weight: 600;
-        color: var(--color-heading);
-        margin-top: 2rem;
-        margin-bottom: 1rem;
-        padding-bottom: 0.5rem;
-        border-bottom: 1px solid var(--color-border);
+      .label {
+        margin: 0;
+        color: var(--muted);
+        text-align: left;
+        font-size: 0.95rem;
+        line-height: 1.4;
       }
 
-      h3 {
-        font-size: 1.25rem;
-        font-weight: 600;
-        color: var(--color-heading);
-        margin-top: 1.5rem;
-        margin-bottom: 0.75rem;
+      h1 {
+        margin: 16px 0 0;
+        max-width: 8ch;
+        font-size: clamp(2.1rem, 5vw, 3.35rem);
+        line-height: 1.04;
+        font-weight: 500;
+        letter-spacing: -0.04em;
       }
 
-      p {
-        margin-bottom: 1rem;
-        opacity: 0.8;
+      .lead {
+        margin: 18px 0 0;
+        max-width: 30ch;
+        color: var(--muted);
+        font-size: 1.05rem;
+        line-height: 1.65;
       }
 
-      a {
-        color: var(--color-link);
-        text-decoration: none;
+      .steps {
+        width: 100%;
       }
 
-      a:hover {
-        color: var(--color-link-hover);
-        text-decoration: underline;
-      }
-
-      code {
-        font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
-        font-size: 0.875em;
-      }
-
-      pre {
-        background: transparent !important;
-        border: none !important;
-        padding: 0 !important;
-        margin-bottom: 1rem;
-        overflow: visible;
-        white-space: pre;
-      }
-
-      pre code {
-        background: transparent !important;
-        padding: 0 !important;
-        font-size: 0.875rem;
-        white-space: pre;
-      }
-
-      ol,
-      ul {
-        margin-bottom: 1rem;
-        padding-left: 2rem;
+      ol {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        border-top: 1px solid var(--border);
       }
 
       li {
-        margin-bottom: 0.5rem;
-        opacity: 0.8;
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr);
+        gap: 16px;
+        padding: 16px 0;
+        border-bottom: 1px solid var(--border);
+        align-items: start;
       }
 
-      strong {
-        font-weight: 600;
-        color: var(--color-heading);
-      }
-
-      .step-number {
-        color: var(--color-link);
-        font-weight: 700;
-        font-size: 1.125rem;
-        margin-right: 0.75rem;
-        flex-shrink: 0;
+      .number {
+        color: var(--muted);
+        font-size: 0.95rem;
         line-height: 1.6;
       }
 
-      .step {
-        display: flex;
-        align-items: flex-start;
-        margin-bottom: 1.5rem;
+      strong {
+        display: block;
+        font-weight: 500;
+        font-size: 1rem;
+        line-height: 1.4;
       }
 
-      .step-content {
-        flex: 1;
-        min-width: 0;
+      li p {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 0.98rem;
+        line-height: 1.55;
       }
 
-      footer {
-        margin-top: 3rem;
-        padding-top: 2rem;
-        border-top: 1px solid var(--color-border);
-        text-align: center;
-        color: var(--color-muted);
-        font-size: 0.875rem;
+      .note {
+        margin: 16px 0 0;
+        max-width: 28ch;
+        color: var(--muted);
+        font-size: 0.95rem;
+        line-height: 1.6;
       }
 
-      /* Tomorrow (light) token colors */
-      code[class*='language-'],
-      pre[class*='language-'] {
-        color: #8959a8;
-        text-shadow: none;
-      }
-      .token.comment,
-      .token.block-comment,
-      .token.prolog,
-      .token.doctype,
-      .token.cdata {
-        color: #8e908c;
-      }
-      .token.punctuation {
-        color: #8959a8;
-      }
-      .token.tag,
-      .token.attr-name,
-      .token.namespace,
-      .token.deleted {
-        color: #c82829;
-      }
-      .token.function-name {
-        color: #4271ae;
-      }
-      .token.boolean,
-      .token.number,
-      .token.function {
-        color: #f5871f;
-      }
-      .token.property,
-      .token.class-name,
-      .token.constant,
-      .token.symbol {
-        color: #eab700;
-      }
-      .token.selector,
-      .token.important,
-      .token.atrule,
-      .token.keyword,
-      .token.builtin {
-        color: #8959a8;
-      }
-      .token.string,
-      .token.char,
-      .token.attr-value,
-      .token.regex,
-      .token.variable {
-        color: #718c00;
-      }
-      .token.operator,
-      .token.entity,
-      .token.url {
-        color: #3e999f;
-      }
-      .token.inserted {
-        color: #718c00;
-      }
+      @media (max-width: 820px) {
+        body {
+          padding: 32px 24px;
+        }
 
-      /* Tomorrow Night (dark) token colors */
-      @media (prefers-color-scheme: dark) {
-        code[class*='language-'],
-        pre[class*='language-'] {
-          color: #b294bb;
+        main {
+          grid-template-columns: 1fr;
+          gap: 32px;
+          align-items: start;
         }
-        .token.comment,
-        .token.block-comment,
-        .token.prolog,
-        .token.doctype,
-        .token.cdata {
-          color: #969896;
+
+        .label,
+        h1,
+        .lead,
+        .note {
+          text-align: center;
         }
-        .token.punctuation {
-          color: #b294bb;
+
+        h1 {
+          margin: 12px auto 0;
         }
-        .token.tag,
-        .token.attr-name,
-        .token.namespace,
-        .token.deleted {
-          color: #cc6666;
-        }
-        .token.function-name {
-          color: #81a2be;
-        }
-        .token.boolean,
-        .token.number,
-        .token.function {
-          color: #de935f;
-        }
-        .token.property,
-        .token.class-name,
-        .token.constant,
-        .token.symbol {
-          color: #f0c674;
-        }
-        .token.selector,
-        .token.important,
-        .token.atrule,
-        .token.keyword,
-        .token.builtin {
-          color: #b294bb;
-        }
-        .token.string,
-        .token.char,
-        .token.attr-value,
-        .token.regex,
-        .token.variable {
-          color: #b5bd68;
-        }
-        .token.operator,
-        .token.entity,
-        .token.url {
-          color: #8abeb7;
-        }
-        .token.inserted {
-          color: #b5bd68;
+
+        .lead,
+        .note {
+          margin-left: auto;
+          margin-right: auto;
         }
       }
     </style>
@@ -275,125 +151,36 @@
   <body>
     <main>
       <section>
-        <h2>Getting Started with Interpreter Chrome Extension</h2>
-
-        <p>Control your browser through Interpreter with the Playwright API. Uses the extension plus the CLI.</p>
-
-        <h3>Installation</h3>
-
-        <div class="step">
-          <span class="step-number">1</span>
-          <div class="step-content">
-            <strong>Pin the extension</strong>
-            <p>Click the puzzle icon in Chrome's toolbar, then pin Interpreter Chrome Extension so it's always visible.</p>
-          </div>
-        </div>
-
-        <div class="step">
-          <span class="step-number">2</span>
-          <div class="step-content">
-            <strong>Enable a tab</strong>
-            <p>Click the extension icon on a tab. It turns green when connected.</p>
-          </div>
-        </div>
-
-        <div class="step">
-          <span class="step-number">3</span>
-          <div class="step-content">
-            <strong>Install the CLI and run a command</strong>
-            <pre><code class="language-bash"># install the CLI globally
-npm i -g playwriter
-# navigate to a URL in the active tab
-playwriter -s 1 -e "await page.goto('https://example.com')"</code></pre>
-          </div>
-        </div>
-
-        <div class="step">
-          <span class="step-number">4</span>
-          <div class="step-content">
-            <strong>Add the skill to your agent</strong>
-            <p>Install the browser-control skill so your agent can call the CLI:</p>
-            <pre><code class="language-bash"># add the browser-control skill to your coding agent
-npx -y skills add remorses/playwriter</code></pre>
-          </div>
-        </div>
-
-        <h3>CLI Examples</h3>
-
-        <pre><code class="language-bash"># create a stateful sandbox, outputs session id (e.g. 1)
-playwriter session new
-# navigate to a URL
-playwriter -s 1 -e "await page.goto('https://example.com')"
-# get the accessibility tree of the page
-playwriter -s 1 -e "console.log(await snapshot({ page }))"
-# click an element by its accessibility reference
-playwriter -s 1 -e "await page.locator('aria-ref=e5').click()"</code></pre>
+        <p class="label">Interpreter Chrome Extension</p>
+        <h1>Click the extension on the tab you want.</h1>
+        <p class="lead">Keep Interpreter open. Each click only affects the tab you are on.</p>
       </section>
-
-      <section>
-        <h2>How It Works</h2>
-
-        <ul>
-          <li><strong>No new Chrome instances:</strong> Works with your current browser session</li>
-          <li><strong>No CDP mode required:</strong> No need to restart Chrome with special flags</li>
-          <li><strong>Full CDP access:</strong> Complete Chrome DevTools Protocol capabilities</li>
-          <li><strong>Visual feedback:</strong> Extension icon changes color to indicate connection status</li>
-        </ul>
+      <section class="steps" aria-label="Setup">
+        <ol>
+          <li>
+            <span class="number">1</span>
+            <div>
+              <strong>Open Interpreter</strong>
+              <p>Keep the app running while you use the extension.</p>
+            </div>
+          </li>
+          <li>
+            <span class="number">2</span>
+            <div>
+              <strong>Open the site you want</strong>
+              <p>Go to the page you want Interpreter to use.</p>
+            </div>
+          </li>
+          <li>
+            <span class="number">3</span>
+            <div>
+              <strong>Click the extension on that tab</strong>
+              <p>That turns the current tab on. Click it again to turn that same tab off.</p>
+            </div>
+          </li>
+        </ol>
+        <p class="note">If you do not see the button, pin it from Chrome's extensions menu.</p>
       </section>
-
-      <section>
-        <h2>Icon States</h2>
-
-        <ul>
-          <li><strong>Gray:</strong> Not connected to any tab</li>
-          <li><strong>Green:</strong> Successfully connected and ready</li>
-          <li><strong>Orange badge (...):</strong> Connecting to relay server</li>
-          <li><strong>Red badge (!):</strong> Error occurred</li>
-        </ul>
-      </section>
-
-      <section>
-        <h2>Privacy &amp; Security</h2>
-
-        <p>
-          Interpreter Chrome Extension runs locally in your browser and does not send any data to external servers.
-          All browser control happens through the standard Chrome DevTools Protocol on your machine.
-        </p>
-      </section>
-
-      <section>
-        <h2>MCP Setup (Optional)</h2>
-
-        <p>The CLI is the recommended way to use Interpreter Chrome Extension. If you need MCP server setup, auto-configure it with:</p>
-
-        <pre><code class="language-bash"># auto-configure MCP server for your editor
-npx -y @playwriter/install-mcp playwriter@latest</code></pre>
-
-        <p>
-          For full MCP instructions, see
-          <a href="https://github.com/remorses/playwriter/blob/main/MCP.md" target="_blank" rel="noopener noreferrer"
-            >MCP.md</a
-          >.
-        </p>
-      </section>
-
-      <section>
-        <h2>Need Help?</h2>
-
-        <p>
-          For issues, feature requests, or contributions, visit the
-          <a href="https://github.com/remorses/playwriter" target="_blank" rel="noopener noreferrer">
-            GitHub repository
-          </a>
-          .
-        </p>
-      </section>
-
-      <footer>
-        <p>Interpreter Chrome Extension &middot; Licensed under Apache-2.0</p>
-      </footer>
     </main>
-    <script src="prism.min.js"></script>
-    <script src="prism-bash.min.js"></script>
   </body>
 </html>
