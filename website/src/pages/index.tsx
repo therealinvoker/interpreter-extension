@@ -244,7 +244,7 @@ export async function IndexPage() {
   return (
     <EditorialPage
       toc={tocItems}
-      logo='/playwriter-logo.svg'
+      logo='/logo-512.png'
       tabs={tabItems}
       activeTab='/'
       sections={sections}

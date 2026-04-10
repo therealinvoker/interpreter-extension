@@ -11,14 +11,6 @@ import type { ExtensionState, ConnectionState, TabState, TabInfo } from './types
 import type { CDPEvent, Protocol } from 'playwriter/src/cdp-types'
 import type { ExtensionCommandMessage, ExtensionResponseMessage } from 'playwriter/src/protocol'
 import { handleGhostBrowserCommand, type GhostBrowserCommandParams } from 'playwriter/src/ghost-browser'
-import {
-  getActiveRecordings,
-  handleStartRecording,
-  handleStopRecording,
-  handleIsRecording,
-  handleCancelRecording,
-  cleanupRecordingForTab,
-} from './recording'
 
 const RELAY_HOST = '127.0.0.1'
 const RELAY_PORT = Number(process.env.PLAYWRITER_PORT) || 19988
@@ -29,11 +21,15 @@ type NavigatorWithUaData = Navigator & {
   }
 }
 
-type ExtensionIdentity = {
+type ExtensionConnectionInfo = {
   browser: string
-  email: string
-  id: string
+  installId: string
 }
+
+const EXTENSION_DB_NAME = 'interpreter-extension'
+const EXTENSION_DB_VERSION = 1
+const EXTENSION_DB_STORE = 'metadata'
+const EXTENSION_INSTALL_ID_KEY = 'relay-install-id'
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -68,7 +64,7 @@ async function detectBrowserName(): Promise<string> {
   return 'Chromium'
 }
 
-let identityPromise: Promise<ExtensionIdentity> | null = null
+let connectionInfoPromise: Promise<ExtensionConnectionInfo> | null = null
 const tabSessionScope = (() => {
   const values = new Uint32Array(2)
   crypto.getRandomValues(values)
@@ -79,30 +75,79 @@ const tabSessionScope = (() => {
     .join('')
 })()
 
-async function getExtensionIdentity(): Promise<ExtensionIdentity> {
-  if (identityPromise) {
-    return identityPromise
+function openExtensionDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(EXTENSION_DB_NAME, EXTENSION_DB_VERSION)
+    request.onupgradeneeded = () => {
+      const db = request.result
+      if (!db.objectStoreNames.contains(EXTENSION_DB_STORE)) {
+        db.createObjectStore(EXTENSION_DB_STORE)
+      }
+    }
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error ?? new Error('Failed to open extension database'))
+  })
+}
+
+async function readExtensionMetadata(key: string): Promise<string | undefined> {
+  const db = await openExtensionDatabase()
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(EXTENSION_DB_STORE, 'readonly')
+      const store = tx.objectStore(EXTENSION_DB_STORE)
+      const request = store.get(key)
+      request.onsuccess = () => {
+        const value = request.result
+        resolve(typeof value === 'string' ? value : undefined)
+      }
+      request.onerror = () => reject(request.error ?? new Error(`Failed to read metadata key: ${key}`))
+    })
+  } finally {
+    db.close()
+  }
+}
+
+async function writeExtensionMetadata(key: string, value: string): Promise<void> {
+  const db = await openExtensionDatabase()
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(EXTENSION_DB_STORE, 'readwrite')
+      const store = tx.objectStore(EXTENSION_DB_STORE)
+      const request = store.put(value, key)
+      request.onsuccess = () => resolve()
+      request.onerror = () => reject(request.error ?? new Error(`Failed to write metadata key: ${key}`))
+    })
+  } finally {
+    db.close()
+  }
+}
+
+async function getPersistentInstallId(): Promise<string> {
+  const existing = await readExtensionMetadata(EXTENSION_INSTALL_ID_KEY)
+  if (existing) {
+    return existing
   }
 
-  identityPromise = (async () => {
+  const installId = crypto.randomUUID()
+  await writeExtensionMetadata(EXTENSION_INSTALL_ID_KEY, installId)
+  return installId
+}
+
+async function getExtensionConnectionInfo(): Promise<ExtensionConnectionInfo> {
+  if (connectionInfoPromise) {
+    return connectionInfoPromise
+  }
+
+  connectionInfoPromise = (async () => {
     const browser = await detectBrowserName()
-    try {
-      const info = await chrome.identity.getProfileUserInfo({ accountStatus: 'ANY' })
-      return {
-        browser,
-        email: info.email || '',
-        id: info.id || '',
-      }
-    } catch {
-      return {
-        browser,
-        email: '',
-        id: '',
-      }
+    const installId = await getPersistentInstallId()
+    return {
+      browser,
+      installId,
     }
   })()
 
-  return identityPromise
+  return connectionInfoPromise
 }
 
 const TAB_GROUP_COLOR: chrome.tabGroups.ColorEnum = 'green'
@@ -114,46 +159,6 @@ let tabGroupQueue: Promise<void> = Promise.resolve()
 // Cache Target.setAutoAttach params so existing and future tabs enable OOPIF target events.
 // This ensures Playwright can build the iframe frame tree when connecting over CDP.
 let autoAttachParams: Protocol.Target.SetAutoAttachRequest | null = null
-
-// Buffer for recording chunks when WebSocket isn't ready.
-// Chunks are keyed by tabId and flushed when WebSocket opens.
-interface BufferedChunk {
-  tabId: number
-  data?: number[]
-  final?: boolean
-}
-const recordingChunkBuffer: BufferedChunk[] = []
-
-/**
- * Flush buffered recording chunks to the WebSocket.
- * Called when WebSocket becomes ready.
- */
-function flushRecordingChunkBuffer(ws: WebSocket): void {
-  if (recordingChunkBuffer.length === 0) {
-    return
-  }
-
-  logger.debug(`Flushing ${recordingChunkBuffer.length} buffered recording chunks`)
-
-  while (recordingChunkBuffer.length > 0) {
-    const chunk = recordingChunkBuffer.shift()!
-    const { tabId, data, final } = chunk
-
-    // Send metadata message first
-    ws.send(
-      JSON.stringify({
-        method: 'recordingData',
-        params: { tabId, final },
-      }),
-    )
-
-    // Then send binary data if not final
-    if (data && !final) {
-      const buffer = new Uint8Array(data)
-      ws.send(buffer)
-    }
-  }
-}
 
 class ConnectionManager {
   ws: WebSocket | null = null
@@ -214,16 +219,13 @@ class ConnectionManager {
       }
     }
 
-    const identity = await getExtensionIdentity()
+    const connectionInfo = await getExtensionConnectionInfo()
     const relayUrl = new URL(`ws://${RELAY_HOST}:${RELAY_PORT}/extension`)
-    if (identity.browser) {
-      relayUrl.searchParams.set('browser', identity.browser)
+    if (connectionInfo.browser) {
+      relayUrl.searchParams.set('browser', connectionInfo.browser)
     }
-    if (identity.email) {
-      relayUrl.searchParams.set('email', identity.email)
-    }
-    if (identity.id) {
-      relayUrl.searchParams.set('id', identity.id)
+    if (connectionInfo.installId) {
+      relayUrl.searchParams.set('installId', connectionInfo.installId)
     }
     if (typeof __PLAYWRITER_VERSION__ !== 'undefined') {
       relayUrl.searchParams.set('v', __PLAYWRITER_VERSION__)
@@ -248,10 +250,6 @@ class ConnectionManager {
         settled = true
         logger.debug('WebSocket connected')
         clearTimeout(timeout)
-
-        // Flush any buffered recording chunks now that WebSocket is ready
-        flushRecordingChunkBuffer(socket)
-
         resolve()
       }
 
@@ -329,51 +327,6 @@ class ConnectionManager {
         } catch (error: any) {
           logger.debug('Failed to create initial tab:', error)
           sendMessage({ id: message.id, error: error.message })
-        }
-        return
-      }
-
-      // Handle recording commands
-      if (message.method === 'startRecording') {
-        try {
-          const result = await handleStartRecording(message.params)
-          sendMessage({ id: message.id, result })
-        } catch (error: any) {
-          logger.error('Failed to start recording:', error)
-          sendMessage({ id: message.id, result: { success: false, error: error.message } })
-        }
-        return
-      }
-
-      if (message.method === 'stopRecording') {
-        try {
-          const result = await handleStopRecording(message.params)
-          sendMessage({ id: message.id, result })
-        } catch (error: any) {
-          logger.error('Failed to stop recording:', error)
-          sendMessage({ id: message.id, result: { success: false, error: error.message } })
-        }
-        return
-      }
-
-      if (message.method === 'isRecording') {
-        try {
-          const result = await handleIsRecording(message.params)
-          sendMessage({ id: message.id, result })
-        } catch (error: any) {
-          logger.error('Failed to check recording status:', error)
-          sendMessage({ id: message.id, result: { isRecording: false } })
-        }
-        return
-      }
-
-      if (message.method === 'cancelRecording') {
-        try {
-          const result = await handleCancelRecording(message.params)
-          sendMessage({ id: message.id, result })
-        } catch (error: any) {
-          logger.error('Failed to cancel recording:', error)
-          sendMessage({ id: message.id, result: { success: false, error: error.message } })
         }
         return
       }
@@ -1288,9 +1241,6 @@ function detachTab(tabId: number, shouldDetachDebugger: boolean): void {
     return
   }
 
-  // Clean up any active recording for this tab
-  cleanupRecordingForTab(tabId)
-
   logger.warn(`DISCONNECT: detachTab tabId=${tabId} shouldDetach=${shouldDetachDebugger} stack=${getCallStack()}`)
 
   // Only send detach event if tab was fully attached (has sessionId/targetId)
@@ -1440,7 +1390,7 @@ async function resetDebugger(): Promise<void> {
 
 // Our extension IDs - allow attaching to our own extension pages for debugging
 const OUR_EXTENSION_IDS = [
-  'jfeammnjpkecdekppnclgkkffahnhfhe', // Production extension (Chrome Web Store)
+  'bboaaphdpllilofamfpommlbafpellnb', // Production extension (Chrome Web Store)
   'pebbngnfojnignonigcnkdilknapkgid', // Dev extension (stable ID from manifest key)
 ]
 
@@ -1473,18 +1423,29 @@ const icons = {
       '48': '/icons/icon-green-48.png',
       '128': '/icons/icon-green-128.png',
     },
-    title: 'Connected - Click to disconnect',
+    title: 'This tab is connected to Interpreter - Click to disconnect',
     badgeText: '',
     badgeColor: [64, 64, 64, 255] as [number, number, number, number],
   },
-  connecting: {
+  relayUnavailable: {
     path: {
       '16': '/icons/icon-gray-16.png',
       '32': '/icons/icon-gray-32.png',
       '48': '/icons/icon-gray-48.png',
       '128': '/icons/icon-gray-128.png',
     },
-    title: 'Waiting for local relay...',
+    title: 'Waiting for the local Interpreter relay. Start the app, then try again.',
+    badgeText: '...',
+    badgeColor: [64, 64, 64, 255] as [number, number, number, number],
+  },
+  connecting: {
+    path: {
+      '16': '/icons/icon-blue-16.png',
+      '32': '/icons/icon-blue-32.png',
+      '48': '/icons/icon-blue-48.png',
+      '128': '/icons/icon-blue-128.png',
+    },
+    title: 'Connecting this tab to Interpreter...',
     badgeText: '...',
     badgeColor: [64, 64, 64, 255] as [number, number, number, number],
   },
@@ -1495,27 +1456,27 @@ const icons = {
       '48': '/icons/icon-black-48.png',
       '128': '/icons/icon-black-128.png',
     },
-    title: 'Click to connect Interpreter',
+    title: 'Interpreter is ready. Click to connect this tab.',
     badgeText: '',
     badgeColor: [64, 64, 64, 255] as [number, number, number, number],
   },
   restricted: {
     path: {
-      '16': '/icons/icon-gray-16.png',
-      '32': '/icons/icon-gray-32.png',
-      '48': '/icons/icon-gray-48.png',
-      '128': '/icons/icon-gray-128.png',
+      '16': '/icons/icon-red-16.png',
+      '32': '/icons/icon-red-32.png',
+      '48': '/icons/icon-red-48.png',
+      '128': '/icons/icon-red-128.png',
     },
-    title: 'Cannot attach to this page',
-    badgeText: '',
-    badgeColor: [64, 64, 64, 255] as [number, number, number, number],
+    title: 'Chrome blocks this page. Open a normal site, then click the extension there.',
+    badgeText: '!',
+    badgeColor: [220, 38, 38, 255] as [number, number, number, number],
   },
   extensionReplaced: {
     path: {
-      '16': '/icons/icon-gray-16.png',
-      '32': '/icons/icon-gray-32.png',
-      '48': '/icons/icon-gray-48.png',
-      '128': '/icons/icon-gray-128.png',
+      '16': '/icons/icon-red-16.png',
+      '32': '/icons/icon-red-32.png',
+      '48': '/icons/icon-red-48.png',
+      '128': '/icons/icon-red-128.png',
     },
     title: 'Another Interpreter Chrome Extension connected - Click to retry',
     badgeText: '!',
@@ -1523,10 +1484,10 @@ const icons = {
   },
   tabError: {
     path: {
-      '16': '/icons/icon-gray-16.png',
-      '32': '/icons/icon-gray-32.png',
-      '48': '/icons/icon-gray-48.png',
-      '128': '/icons/icon-gray-128.png',
+      '16': '/icons/icon-red-16.png',
+      '32': '/icons/icon-red-32.png',
+      '48': '/icons/icon-red-48.png',
+      '128': '/icons/icon-red-128.png',
     },
     title: 'Error',
     badgeText: '!',
@@ -1554,6 +1515,7 @@ async function updateIcons(): Promise<void> {
       if (tabInfo?.state === 'error') return icons.tabError
       if (tabInfo?.state === 'connecting') return icons.connecting
       if (tabInfo?.state === 'connected') return icons.connected
+      if (connectionState !== 'connected') return icons.relayUnavailable
       return icons.idle
     })()
 
@@ -1564,7 +1526,11 @@ async function updateIcons(): Promise<void> {
     })()
 
     const badgeText = (() => {
-      if (iconConfig === icons.connected || iconConfig === icons.idle || iconConfig === icons.restricted) {
+      if (
+        iconConfig === icons.connected ||
+        iconConfig === icons.idle ||
+        iconConfig === icons.restricted
+      ) {
         return connectedCount > 0 ? String(connectedCount) : ''
       }
       return iconConfig.badgeText
@@ -1838,56 +1804,3 @@ chrome.contextMenus?.onClicked.addListener(async (info, tab) => {
 
 // Sync icons on first load
 void updateIcons()
-
-// Handle messages from offscreen document (recording chunks)
-chrome.runtime.onMessage.addListener((message, _sender, _sendResponse) => {
-  if (message.action === 'recordingChunk') {
-    const { tabId, data, final } = message
-
-    if (connectionManager.ws?.readyState === WebSocket.OPEN) {
-      // Send metadata message first
-      sendMessage({
-        method: 'recordingData',
-        params: { tabId, final },
-      })
-
-      // Then send binary data if not final
-      if (data && !final) {
-        const buffer = new Uint8Array(data)
-        connectionManager.ws.send(buffer)
-      }
-    } else {
-      // Buffer chunks when WebSocket isn't ready - they'll be flushed when it opens.
-      // This prevents data loss during brief disconnections or slow WebSocket startup.
-      logger.debug(`Buffering recording chunk for tab ${tabId} (WebSocket not ready)`)
-      recordingChunkBuffer.push({ tabId, data, final })
-    }
-
-    return false // Sync response, no need to keep channel open
-  }
-
-  if (message.action === 'recordingCancelled') {
-    const { tabId } = message
-
-    getActiveRecordings().delete(tabId)
-    store.setState((state) => {
-      const newTabs = new Map(state.tabs)
-      const existing = newTabs.get(tabId)
-      if (existing) {
-        newTabs.set(tabId, { ...existing, isRecording: false })
-      }
-      return { tabs: newTabs }
-    })
-
-    if (connectionManager.ws?.readyState === WebSocket.OPEN) {
-      sendMessage({
-        method: 'recordingCancelled',
-        params: { tabId },
-      })
-    }
-
-    return false
-  }
-
-  return false
-})

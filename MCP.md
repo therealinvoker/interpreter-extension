@@ -80,8 +80,6 @@ Chrome 136+ may show an approval dialog the first time a connection is made.
 
 You can also pass an explicit WebSocket endpoint: `PLAYWRITER_DIRECT=ws://127.0.0.1:9222/devtools/browser/abc`.
 
-**Limitation:** screen recording is unavailable in direct mode.
-
 ## Remote Agents (Devcontainers, VMs, SSH)
 
 Run agents in isolated environments while controlling Chrome on your host.

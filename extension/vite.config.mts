@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { defineConfig } from 'vite'
+import { defineConfig, normalizePath } from 'vite'
 import { viteStaticCopy } from 'vite-plugin-static-copy'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -23,18 +23,24 @@ if (process.env.TESTING) {
 
 // Allow tests to build per-port extension outputs to avoid parallel run conflicts.
 const outDir = process.env.PLAYWRITER_EXTENSION_DIST || 'dist'
+const copySource = (relativePath: string) => normalizePath(resolve(__dirname, relativePath))
 
 export default defineConfig({
   plugins: [
     viteStaticCopy({
       targets: [
         {
-          src: resolve(__dirname, 'icons/*'),
+          // vite-plugin-static-copy expects POSIX-style glob paths on Windows.
+          src: copySource('icons/icon-*.png'),
+          dest: 'icons',
+        },
+        {
+          src: copySource('icons/GENERATED-FROM-APP-ICON.txt'),
           dest: 'icons',
         },
 
         {
-          src: resolve(__dirname, 'manifest.json'),
+          src: copySource('manifest.json'),
           dest: '.',
           transform: (content) => {
             const manifest = JSON.parse(content)
@@ -62,12 +68,11 @@ export default defineConfig({
 
   build: {
     outDir,
-    emptyOutDir: false,
+    emptyOutDir: true,
     minify: false,
     rollupOptions: {
       input: {
         background: resolve(__dirname, 'src/background.ts'),
-        offscreen: resolve(__dirname, 'src/offscreen.html'),
         welcome: resolve(__dirname, 'src/welcome.html'),
       },
       output: {

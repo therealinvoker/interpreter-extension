@@ -1,18 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Interpreter Chrome Extension",
-  "version": "0.0.79",
+  "version": "0.0.88",
   "description": "Connect Interpreter to your existing Chrome tabs without launching a separate browser.",
   "permissions": [
     "debugger",
     "scripting",
     "tabGroups",
     "contextMenus",
-    "tabs",
-    "tabCapture",
-    "offscreen",
-    "identity",
-    "identity.email"
+    "tabs"
   ],
   "host_permissions": ["<all_urls>"],
   "background": {

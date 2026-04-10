@@ -1,0 +1,4 @@
+Generated from resources/icons/app.png.
+
+Do not hand-edit icon-black-*.png, icon-gray-*.png, icon-blue-*.png, icon-green-*.png, or icon-red-*.png.
+Regenerate with: pnpm run extension:assets

@@ -98,7 +98,7 @@ describe('Security Tests', () => {
 
     // 1. Valid chrome-extension origin -> Should succeed
     // Use a valid extension ID from ALLOWED_EXTENSION_IDS in cdp-relay.ts
-    await expect(tryConnectExtension('chrome-extension://jfeammnjpkecdekppnclgkkffahnhfhe')).resolves.not.toThrow()
+    await expect(tryConnectExtension('chrome-extension://bboaaphdpllilofamfpommlbafpellnb')).resolves.not.toThrow()
 
     // 2. Invalid origin (e.g., http://evil.com) -> Should fail
     await expect(tryConnectExtension('http://evil.com')).rejects.toThrow(/Unexpected response: (400|401|403)/)
@@ -109,7 +109,7 @@ describe('Security Tests', () => {
   })
 
   // =========================================================================
-  // Privileged HTTP route hardening (/cli/*, /recording/*)
+  // Privileged HTTP route hardening (/cli/*)
   //
   // These tests verify that cross-origin browser requests are blocked even
   // without CORS preflight (the "simple request" attack vector where POST +
@@ -149,18 +149,6 @@ describe('Security Tests', () => {
       headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-site' },
     })
     expect(sameSite.status).toBe(403)
-  })
-
-  it('should block cross-origin browser requests to /recording/* via Sec-Fetch-Site', async () => {
-    const logger = createFileLogger()
-    server = await startPlayWriterCDPRelayServer({ port: TEST_PORT, logger })
-
-    const res = await httpRequest({
-      path: '/recording/status',
-      method: 'GET',
-      headers: { 'Sec-Fetch-Site': 'cross-site' },
-    })
-    expect(res.status).toBe(403)
   })
 
   it('should block POST with non-JSON Content-Type (text/plain bypass)', async () => {
@@ -215,7 +203,7 @@ describe('Security Tests', () => {
     expect(res.status).toBe(404)
   })
 
-  it('should enforce token on /cli/* and /recording/* when token mode is enabled', async () => {
+  it('should enforce token on /cli/* when token mode is enabled', async () => {
     const secretToken = 'test-secret-token'
     const logger = createFileLogger()
     server = await startPlayWriterCDPRelayServer({ port: TEST_PORT, token: secretToken, logger })
@@ -248,20 +236,6 @@ describe('Security Tests', () => {
     const queryOk = await fetch(`http://127.0.0.1:${TEST_PORT}/cli/sessions?token=${secretToken}`)
     expect(queryOk.status).toBe(200)
 
-    // Token also enforced on /recording/*
-    const recordingNoToken = await httpRequest({
-      path: '/recording/status',
-      method: 'GET',
-      headers: {},
-    })
-    expect(recordingNoToken.status).toBe(401)
-
-    const recordingWithToken = await httpRequest({
-      path: '/recording/status',
-      method: 'GET',
-      headers: { Authorization: `Bearer ${secretToken}` },
-    })
-    expect(recordingWithToken.status).toBe(200)
   })
 
   it('should not require token on /cli/* when no token is configured', async () => {

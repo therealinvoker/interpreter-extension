@@ -82,8 +82,6 @@ cli
         console.log(`  Extension: ${extensionPath}`)
         console.log(`  Profile: ${userDataDir}`)
         console.log(`  Mode: ${headless ? 'headless' : 'headed'}`)
-        console.log('  Permissions: recording/tabCapture flags enabled')
-
         if (connectedExtensions.length > 0) {
           console.log('Interpreter Chrome Extension connected to the relay server.')
           return
@@ -150,7 +148,6 @@ async function fetchExtensionsStatus(host?: string): Promise<ExtensionStatus[]> 
         connected: boolean
         activeTargets: number
         browser: string | null
-        profile: { email: string; id: string } | null
         playwriterVersion?: string | null
       }
       if (!fallbackData?.connected) {
@@ -161,7 +158,6 @@ async function fetchExtensionsStatus(host?: string): Promise<ExtensionStatus[]> 
           extensionId: 'default',
           stableKey: undefined,
           browser: fallbackData?.browser,
-          profile: fallbackData?.profile,
           activeTargets: fallbackData?.activeTargets,
           playwriterVersion: fallbackData?.playwriterVersion || null,
         },
@@ -308,7 +304,7 @@ interface BrowserOption {
   key: string
   type: 'extension' | 'direct'
   browser: string
-  profile: string
+  details: string
   /** For extension entries */
   extensionId?: string | null
   /** For direct CDP entries */
@@ -372,7 +368,6 @@ cli
         console.log(
           `Session ${result.id} created (direct CDP, ${instance.browser}${profileLabel}). Use with: playwriter -s ${result.id} -e "..."`,
         )
-        console.log(pc.dim('NOTE: Recording unavailable in direct CDP mode.'))
         return
       }
 
@@ -393,7 +388,6 @@ cli
         const serverUrl = await getServerUrl(options.host)
         const result = await createDirectSession({ serverUrl, cdpEndpoint: selected.wsUrl!, browser: selected.browser, profiles: selected.profiles })
         console.log(`Session ${result.id} created (direct CDP). Use with: playwriter -s ${result.id} -e "..."`)
-        console.log(pc.dim('NOTE: Recording unavailable in direct CDP mode.'))
         return
       }
 
@@ -482,7 +476,7 @@ cli
           key: ext.stableKey || ext.extensionId,
           type: 'extension' as const,
           browser: ext.browser || 'Chrome',
-          profile: ext.profile?.email || '(not signed in)',
+          details: `${ext.activeTargets} attached ${ext.activeTargets === 1 ? 'tab' : 'tabs'}`,
           extensionId: ext.extensionId === 'default' ? null : ext.stableKey || ext.extensionId,
         }
       }),
@@ -506,7 +500,6 @@ cli
         if (selected.type === 'direct') {
           const result = await createDirectSession({ serverUrl, cdpEndpoint: selected.wsUrl!, browser: selected.browser, profiles: selected.profiles })
           console.log(`Session ${result.id} created (direct CDP). Use with: playwriter -s ${result.id} -e "..."`)
-          console.log(pc.dim('NOTE: Recording unavailable in direct CDP mode.'))
         } else {
           const cwd = process.cwd()
           const response = await fetch(`${serverUrl}/cli/session/new`, {
@@ -571,7 +564,7 @@ function instanceToBrowserOption(instance: DiscoveredInstance): BrowserOption {
     key: `direct:${instance.port}`,
     type: 'direct',
     browser: instance.browser,
-    profile: formatInstanceProfiles(instance),
+    details: formatInstanceProfiles(instance),
     wsUrl: instance.wsUrl,
     profiles: instance.profiles,
   }
@@ -595,11 +588,18 @@ function printBrowserTable(options: BrowserOption[]): void {
   const keyWidth = Math.max(3, ...options.map((opt) => opt.key.length))
   const typeWidth = Math.max(4, ...typeLabels.map((t) => t.length))
   const browserWidth = Math.max(7, ...options.map((opt) => opt.browser.length))
+  const detailsWidth = Math.max(7, ...options.map((opt) => opt.details.length))
 
   console.log(
-    'KEY'.padEnd(keyWidth) + '  ' + 'TYPE'.padEnd(typeWidth) + '  ' + 'BROWSER'.padEnd(browserWidth) + '  ' + 'PROFILE',
+    'KEY'.padEnd(keyWidth) +
+      '  ' +
+      'TYPE'.padEnd(typeWidth) +
+      '  ' +
+      'BROWSER'.padEnd(browserWidth) +
+      '  ' +
+      'DETAILS'.padEnd(detailsWidth),
   )
-  console.log('-'.repeat(keyWidth + typeWidth + browserWidth + 20))
+  console.log('-'.repeat(keyWidth + typeWidth + browserWidth + detailsWidth + 8))
   for (let i = 0; i < options.length; i++) {
     const opt = options[i]
     console.log(
@@ -609,7 +609,7 @@ function printBrowserTable(options: BrowserOption[]): void {
         '  ' +
         opt.browser.padEnd(browserWidth) +
         '  ' +
-        opt.profile,
+        opt.details,
     )
   }
 }
@@ -663,7 +663,7 @@ cli
 
     const idWidth = Math.max(2, ...sessions.map((session) => String(session.id).length))
     const browserWidth = Math.max(7, ...sessions.map((session) => (session.browser || 'Chrome').length))
-    const profileWidth = Math.max(7, ...sessions.map((session) => (session.profile?.email || '').length || 1))
+    const detailsWidth = Math.max(7, ...sessions.map((session) => (session.profile?.email || '').length || 1))
     const extensionWidth = Math.max(2, ...sessions.map((session) => (session.extensionId || '').length || 1))
     const cwdWidth = Math.max(3, ...sessions.map((session) => (session.cwd || '').length || 1))
     const stateWidth = Math.max(10, ...sessions.map((session) => session.stateKeys.join(', ').length || 1))
@@ -673,7 +673,7 @@ cli
         '  ' +
         'BROWSER'.padEnd(browserWidth) +
         '  ' +
-        'PROFILE'.padEnd(profileWidth) +
+        'DETAILS'.padEnd(detailsWidth) +
         '  ' +
         'EXT'.padEnd(extensionWidth) +
         '  ' +
@@ -681,18 +681,18 @@ cli
         '  ' +
         'STATE KEYS',
     )
-    console.log('-'.repeat(idWidth + browserWidth + profileWidth + extensionWidth + cwdWidth + stateWidth + 10))
+    console.log('-'.repeat(idWidth + browserWidth + detailsWidth + extensionWidth + cwdWidth + stateWidth + 10))
 
     for (const session of sessions) {
       const stateStr = session.stateKeys.length > 0 ? session.stateKeys.join(', ') : '-'
-      const profileLabel = session.profile?.email || '-'
+      const detailsLabel = session.profile?.email || '-'
       const cwdLabel = session.cwd || '-'
       console.log(
         String(session.id).padEnd(idWidth) +
           '  ' +
           (session.browser || 'Chrome').padEnd(browserWidth) +
           '  ' +
-          profileLabel.padEnd(profileWidth) +
+          detailsLabel.padEnd(detailsWidth) +
           '  ' +
           (session.extensionId || '-').padEnd(extensionWidth) +
           '  ' +
@@ -888,7 +888,7 @@ cli
           key: ext.stableKey || ext.extensionId,
           type: 'extension' as const,
           browser: ext.browser || 'Chrome',
-          profile: ext.profile?.email || '(not signed in)',
+          details: `${ext.activeTargets} attached ${ext.activeTargets === 1 ? 'tab' : 'tabs'}`,
           extensionId: ext.extensionId === 'default' ? null : ext.stableKey || ext.extensionId,
         }
       }),

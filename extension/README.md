@@ -2,7 +2,7 @@
 
 Control your Chrome browser via Model Context Protocol (MCP) using Chrome DevTools Protocol (CDP) events.
 
-[**Install from Chrome Web Store**](https://chromewebstore.google.com/detail/playwriter-mcp/jfeammnjpkecdekppnclgkkffahnhfhe)
+[**Install from Chrome Web Store**](https://chromewebstore.google.com/detail/interpreter-chrome-extens/bboaaphdpllilofamfpommlbafpellnb)
 
 ## What is the Interpreter Chrome Extension?
 
@@ -44,7 +44,7 @@ This extension requires the following permissions:
 
 ## Getting Started
 
-1. [Install the extension from the Chrome Web Store](https://chromewebstore.google.com/detail/playwriter-mcp/jfeammnjpkecdekppnclgkkffahnhfhe)
+1. [Install the extension from the Chrome Web Store](https://chromewebstore.google.com/detail/interpreter-chrome-extens/bboaaphdpllilofamfpommlbafpellnb)
 2. Navigate to any webpage
 3. Click the Interpreter Chrome Extension icon
 4. The debugger will attach and the icon will turn green when connected
