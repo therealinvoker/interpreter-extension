@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.0.88
+
+### Changes
+
+- **Clarify the welcome-page action and widen the left column**: Made the headline smaller, gave the left side more width, and rewrote the main copy so it explicitly says the click shares the selected tab with Interpreter.
+
+## 0.0.87
+
+### Changes
+
+- **Reduce the welcome-page headline size**: Lowered the hero typography in `welcome.html` so the page reads less like a poster and more like a utility screen.
+
 ## 0.0.86
 
 ### Changes

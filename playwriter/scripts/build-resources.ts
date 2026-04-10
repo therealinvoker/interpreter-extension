@@ -14,7 +14,7 @@
  * - playwriter/dist/skill.md - full skill docs for local runtime usage
  * - website/public/SKILL.md - full copy for playwriter.dev/SKILL.md
  * - website/public/.well-known/skills/index.json - Agent Skills Discovery endpoint
- * - website/public/.well-known/skills/playwriter/SKILL.md - skill file with frontmatter
+ * - website/public/.well-known/skills/<skill-name>/SKILL.md - skill file with frontmatter
  */
 
 import fs from 'node:fs'
@@ -226,7 +226,7 @@ function parseFrontmatter(content: string): { frontmatter: Record<string, string
  *
  * Creates:
  * - /.well-known/skills/index.json - discovery endpoint
- * - /.well-known/skills/playwriter/SKILL.md - skill file
+ * - /.well-known/skills/<skill-name>/SKILL.md - skill file
  *
  * See: https://agentskills.io/specification
  */
@@ -235,25 +235,30 @@ function buildWellKnownSkills() {
   const skillSourcePath = path.join(repoRoot, 'skills', 'playwriter', 'SKILL.md')
   const websitePublicRoot = path.join(repoRoot, 'website', 'public')
   const wellKnownDir = path.join(websitePublicRoot, '.well-known', 'skills')
-  const playwriterSkillDir = path.join(wellKnownDir, 'playwriter')
+  const legacySkillDir = path.join(wellKnownDir, 'playwriter')
 
   // Read and parse the skill file
   const skillContent = fs.readFileSync(skillSourcePath, 'utf-8')
   const { frontmatter } = parseFrontmatter(skillContent)
+  const skillName = frontmatter.name || 'interpreter-browser'
+  const skillDir = path.join(wellKnownDir, skillName)
 
   // Ensure directories exist
   ensureDir(wellKnownDir)
-  ensureDir(playwriterSkillDir)
+  ensureDir(skillDir)
+  if (skillName !== 'playwriter' && fs.existsSync(legacySkillDir)) {
+    fs.rmSync(legacySkillDir, { recursive: true, force: true })
+  }
 
   // Copy SKILL.md to well-known location
-  fs.writeFileSync(path.join(playwriterSkillDir, 'SKILL.md'), skillContent, 'utf-8')
-  console.log('Generated website/public/.well-known/skills/playwriter/SKILL.md')
+  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), skillContent, 'utf-8')
+  console.log(`Generated website/public/.well-known/skills/${skillName}/SKILL.md`)
 
   // Generate index.json
   const indexJson = {
     skills: [
       {
-        name: frontmatter.name || 'playwriter',
+        name: skillName,
         description: frontmatter.description || '',
         files: ['SKILL.md'],
       },

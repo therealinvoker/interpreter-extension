@@ -31,17 +31,17 @@
         min-height: 100vh;
         display: grid;
         place-items: center;
-        padding: 40px;
+        padding: 48px;
         background: var(--bg);
         color: var(--text);
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       }
 
       main {
-        width: min(980px, 100%);
+        width: min(1160px, 100%);
         display: grid;
-        grid-template-columns: minmax(0, 1.05fr) minmax(320px, 420px);
-        gap: min(8vw, 88px);
+        grid-template-columns: minmax(0, 1.3fr) minmax(360px, 520px);
+        gap: min(7vw, 96px);
         align-items: center;
       }
 
@@ -55,23 +55,27 @@
 
       h1 {
         margin: 16px 0 0;
-        max-width: 8ch;
-        font-size: clamp(2.1rem, 5vw, 3.35rem);
-        line-height: 1.04;
+        max-width: 14ch;
+        font-size: clamp(1.55rem, 2.85vw, 2.25rem);
+        line-height: 1.14;
         font-weight: 500;
         letter-spacing: -0.04em;
       }
 
       .lead {
         margin: 18px 0 0;
-        max-width: 30ch;
+        max-width: 39ch;
         color: var(--muted);
-        font-size: 1.05rem;
-        line-height: 1.65;
+        font-size: 1rem;
+        line-height: 1.7;
       }
 
       .steps {
         width: 100%;
+      }
+
+      .intro {
+        max-width: 620px;
       }
 
       ol {
@@ -112,7 +116,7 @@
 
       .note {
         margin: 16px 0 0;
-        max-width: 28ch;
+        max-width: 32ch;
         color: var(--muted);
         font-size: 0.95rem;
         line-height: 1.6;
@@ -145,15 +149,22 @@
           margin-left: auto;
           margin-right: auto;
         }
+
+        .intro {
+          max-width: none;
+        }
       }
     </style>
   </head>
   <body>
     <main>
-      <section>
+      <section class="intro">
         <p class="label">Interpreter Chrome Extension</p>
-        <h1>Click the extension on the tab you want.</h1>
-        <p class="lead">Keep Interpreter open. Each click only affects the tab you are on.</p>
+        <h1>Share the tab you want to use with Interpreter.</h1>
+        <p class="lead">
+          Open the site you want, then click the extension on that tab. Only the tab you click is shared with
+          Interpreter.
+        </p>
       </section>
       <section class="steps" aria-label="Setup">
         <ol>
@@ -167,15 +178,15 @@
           <li>
             <span class="number">2</span>
             <div>
-              <strong>Open the site you want</strong>
-              <p>Go to the page you want Interpreter to use.</p>
+              <strong>Open the site you want to use</strong>
+              <p>Go to the page you want Interpreter to see and use.</p>
             </div>
           </li>
           <li>
             <span class="number">3</span>
             <div>
               <strong>Click the extension on that tab</strong>
-              <p>That turns the current tab on. Click it again to turn that same tab off.</p>
+              <p>That shares the current tab with Interpreter. Click it again to turn that same tab off.</p>
             </div>
           </li>
         </ol>

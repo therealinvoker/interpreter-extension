@@ -1,6 +1,6 @@
 ## CLI Usage
 
-If `playwriter` command is not found, install globally or use npx/bunx:
+If the browser-control CLI (`playwriter`) is not available, install it globally or use npx/bunx:
 
 ```bash
 npm install -g playwriter@latest
@@ -9,7 +9,7 @@ npx playwriter@latest session new
 bunx playwriter@latest session new
 ```
 
-If using npx or bunx always use @latest for the first session command. so we are sure of using the latest version of the package
+If using npx or bunx, always use `@latest` for the first session command so you pick up the latest browser-control package.
 
 ### Session management
 
@@ -46,7 +46,7 @@ playwriter session reset <sessionId>
 
 ### Direct CDP connection (--direct)
 
-Only use `--direct` when the user explicitly asks for it. This mode requires the user to accept a debugging approval dialog in Chrome, so it cannot be used autonomously.
+Only use `--direct` when the user explicitly asks for a no-extension flow. This mode requires the user to accept a debugging approval dialog in Chrome, so it cannot be used autonomously.
 
 `--direct` connects to Chrome's DevTools Protocol without the extension. Unlike extension mode, it gives access to **all existing pages** in the browser — no need to enable per tab. Works with any Chromium browser (Chrome, Brave, Arc, Edge, etc.).
 
@@ -129,28 +129,31 @@ console.log({ title, url });
 
 ### Debugging browser-control issues
 
-If some internal critical error happens you can read the relay server logs to understand the issue. The log file is located in the user home directory:
+If some internal critical error happens, print the current relay log paths first:
 
 ```bash
-playwriter logfile  # prints the log file path
-# typically: ~/.playwriter/relay-server.log
+playwriter logfile
 ```
 
-The relay log contains logs from the extension, MCP and WS server. A separate CDP JSONL log is created alongside it (see `playwriter logfile`) with all CDP commands/responses and events, with long strings truncated. Both files are recreated every time the server starts. For debugging internal browser-control errors, read these files with grep/rg to find relevant lines.
+The relay log contains logs from the extension, MCP, and WS server. A separate CDP JSONL log is created alongside it and includes CDP commands, responses, and events with long strings truncated. Both files are recreated every time the server starts. For debugging internal browser-control errors, read the exact paths printed by `playwriter logfile`.
 
-Example: summarize CDP traffic counts by direction + method:
-
-```bash
-jq -r '.direction + "\t" + (.message.method // "response")' ~/.playwriter/cdp.jsonl | uniq -c
-```
-
-If you find a bug, you can create a gh issue using `gh issue create -R remorses/playwriter --title title --body body`. Ask for user confirmation before doing this.
+If you find a bug, capture the failing command, the relevant relay log lines, and the relevant CDP log lines before escalating it.
 
 ---
 
 # Browser-control best practices
 
-Control the user's Chrome browser via Playwright code snippets. Prefer single-line code with semicolons between statements. Use the CLI/browser-control workflow immediately without waiting for user actions; only if you get "extension is not connected" or "no browser tabs have Interpreter Chrome Extension enabled" should you ask the user to click the Interpreter Chrome Extension icon on the target tab.
+Control the user's existing Chrome browser via Playwright code snippets. Prefer single-line code with semicolons between statements.
+
+**If the user does not have the Interpreter Chrome Extension installed:** ask them to install it from the Chrome Web Store first:
+
+```text
+https://chromewebstore.google.com/detail/interpreter-chrome-extens/bboaaphdpllilofamfpommlbafpellnb
+```
+
+After install, tell them to open the site they want to use and click the Interpreter Chrome Extension on that tab. The click only turns on the current tab.
+
+**If the extension is installed but not enabled on the right tab:** when you get "extension is not connected" or "no browser tabs have Interpreter Chrome Extension enabled", ask the user to click the Interpreter Chrome Extension icon on the specific tab they want to share.
 
 **When to use browser control instead of webfetch/curl:** If a website is JS-heavy (SPAs like Instagram, Twitter, Facebook, etc.), has cookie consent modals, login walls, lazy-loaded content, carousels, or infinite scroll — **always use browser control**. Simple fetch/webfetch will return an empty HTML shell with no content. Do NOT waste time trying curl, webfetch, or parsing raw HTML from JS-rendered sites. Go straight to the CLI/browser-control workflow: navigate with a real browser, dismiss modals, then extract what you need via `page.evaluate()` or network interception.
 
@@ -169,6 +172,8 @@ start chrome.exe --profile-directory=Default
 # Windows (PowerShell)
 Start-Process chrome.exe -ArgumentList '--profile-directory=Default'
 ```
+
+**If the user cannot install the extension and explicitly asks for a no-extension path:** use `--direct`. Do not switch to `--direct` on your own.
 
 You can collaborate with the user - they can help with captchas, difficult elements, or reproducing bugs.
 

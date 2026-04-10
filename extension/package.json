@@ -1,6 +1,6 @@
 {
   "name": "mcp-extension",
-  "version": "0.0.86",
+  "version": "0.0.88",
   "description": "Interpreter Chrome Extension",
   "private": true,
   "repository": {

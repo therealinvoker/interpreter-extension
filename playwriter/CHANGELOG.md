@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.105
+
+1. **Browser skill now explains the missing-extension flow** — the bundled browser-control instructions now tell agents to send users to the Interpreter Chrome Web Store listing when the extension is not installed, then instruct them to click the extension on the target tab.
+2. **Remove stale Playwriter branding from bundled skill copy** — the discovery stub now exposes the skill as `interpreter-browser`, the generated well-known skill uses that name, and the prose no longer describes the product as “Playwriter” outside literal command examples.
+
 ## 0.0.104
 
 1. **Production extension allowlists now use the Interpreter Chrome Web Store ID** - the relay-side extension ID list and security coverage now target the live Interpreter listing (`bboaaphdpllilofamfpommlbafpellnb`) instead of the old Playwriter production ID.
