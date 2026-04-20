@@ -127,6 +127,34 @@ function getPathEntries(env: NodeJS.ProcessEnv): string[] {
     })
 }
 
+function getWindowsPlaywrightCacheCandidates(localAppData: string): string[] {
+  if (!localAppData) {
+    return []
+  }
+
+  const playwrightCacheRoot = path.join(localAppData, 'ms-playwright')
+  if (!fs.existsSync(playwrightCacheRoot)) {
+    return []
+  }
+
+  return fs.readdirSync(playwrightCacheRoot, { withFileTypes: true })
+    .filter((entry) => {
+      return entry.isDirectory() && entry.name.startsWith('chromium-')
+    })
+    .map((entry) => {
+      return entry.name
+    })
+    .sort((left, right) => {
+      return right.localeCompare(left, undefined, { numeric: true })
+    })
+    .flatMap((entryName) => {
+      return [
+        path.join(playwrightCacheRoot, entryName, 'chrome-win', 'chrome.exe'),
+        path.join(playwrightCacheRoot, entryName, 'chrome-win64', 'chrome.exe'),
+      ]
+    })
+}
+
 function getExecutableNames(platform: NodeJS.Platform): string[] {
   if (platform === 'win32') {
     return ['chrome.exe', 'chromium.exe']
@@ -187,6 +215,7 @@ export function getBrowserExecutableCandidates({
         path.join(programFiles, 'Chromium', 'Application', 'chromium.exe'),
         path.join(programFilesX86, 'Chromium', 'Application', 'chromium.exe'),
         path.join(localAppData, 'Chromium', 'Application', 'chromium.exe'),
+        ...getWindowsPlaywrightCacheCandidates(localAppData),
       ]
     }
 
