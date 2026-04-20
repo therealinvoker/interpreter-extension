@@ -1006,7 +1006,7 @@ export async function getAriaSnapshot({
     if (scopeLocator) {
       await scopeLocator.evaluate(
         (element, data) => {
-          ;(element as any).setAttribute(data.attr, data.value)
+          ;(element as { setAttribute: (name: string, value: string) => void }).setAttribute(data.attr, data.value)
         },
         { attr: scopeAttr, value: scopeValue },
       )
@@ -1323,7 +1323,7 @@ export async function getAriaSnapshot({
   } finally {
     if (scopeApplied && scopeLocator) {
       await scopeLocator.evaluate((element, attr) => {
-        ;(element as any).removeAttribute(attr)
+        ;(element as { removeAttribute: (name: string) => void }).removeAttribute(attr)
       }, scopeAttr)
     }
     if (oopifSessionId) {
