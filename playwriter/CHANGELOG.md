@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.106
+
+1. **App-managed relay can disable CLI execution routes** — `startPlayWriterCDPRelayServer()` now supports running as a pure browser-tab CDP bridge without registering `/cli/*` session and code-execution endpoints. Interpreter uses this hardened mode for its app-managed relay.
+2. **Relay-side Buffer inspect patch is now opt-in at startup** — the compact `Buffer` inspect override no longer installs at module import time, so hosts like Electron can run the relay without mutating `Buffer.prototype` globally.
+
 ## 0.0.105
 
 1. **Browser skill now explains the missing-extension flow** — the bundled browser-control instructions now tell agents to send users to the Interpreter Chrome Web Store listing when the extension is not installed, then instruct them to click the extension on the target tab.

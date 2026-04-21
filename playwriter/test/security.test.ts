@@ -250,4 +250,19 @@ describe('Security Tests', () => {
     })
     expect(res.status).toBe(200)
   })
+
+  it('should omit /cli/* when started with CLI routes disabled', async () => {
+    const logger = createFileLogger()
+    server = await startPlayWriterCDPRelayServer({
+      port: TEST_PORT,
+      logger,
+      enableCliRoutes: false,
+    })
+
+    const cliRes = await fetch(`http://127.0.0.1:${TEST_PORT}/cli/sessions`)
+    expect(cliRes.status).toBe(404)
+
+    const versionRes = await fetch(`http://127.0.0.1:${TEST_PORT}/json/version`)
+    expect(versionRes.status).toBe(200)
+  })
 })
