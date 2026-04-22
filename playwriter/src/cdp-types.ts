@@ -55,6 +55,7 @@ export type RelayServerEvents = {
   'cdp:command': (data: { clientId: string; command: CDPCommand }) => void
   'cdp:event': (data: { event: CDPEventBase; sessionId?: string }) => void
   'cdp:response': (data: { clientId: string; response: CDPResponseBase; command: CDPCommand }) => void
+  'state:changed': () => void
 }
 
 export { Protocol, ProtocolMapping }
