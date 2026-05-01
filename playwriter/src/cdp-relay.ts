@@ -24,6 +24,11 @@ import { VERSION, EXTENSION_IDS } from './utils.js'
 import { createCdpLogger, type CdpLogEntry, type CdpLogger } from './cdp-log.js'
 import { appendSessionToWsUrl } from './chrome-discovery.js'
 import * as relayState from './relay-state.js'
+import {
+  doesBrowserAccessPolicyAllowUrl,
+  formatBrowserAccessPolicyErrorMessage,
+  type BrowserAccessPolicy,
+} from './browser-access-policy.js'
 
 /**
  * Checks if a target should be filtered out (not exposed to Playwright).
@@ -69,12 +74,14 @@ export async function startPlayWriterCDPRelayServer({
   token,
   logger,
   cdpLogger,
+  getAccessPolicy,
 }: {
   port?: number
   host?: string
   token?: string
   logger?: { log(...args: any[]): void; error(...args: any[]): void }
   cdpLogger?: CdpLogger
+  getAccessPolicy?: () => BrowserAccessPolicy
 } = {}): Promise<RelayServer> {
   const emitter = new EventEmitter()
   const store = relayState.createRelayStore()
@@ -88,6 +95,65 @@ export async function startPlayWriterCDPRelayServer({
 
   const getDefaultExtensionId = (): string | null => {
     return store.getState().extensions.keys().next().value || null
+  }
+
+  const getCurrentAccessPolicy = (): BrowserAccessPolicy | null => {
+    return getAccessPolicy?.() ?? null
+  }
+
+  const isTargetAllowedByPolicy = (targetInfo: Protocol.Target.TargetInfo): boolean => {
+    const currentPolicy = getCurrentAccessPolicy()
+    if (!currentPolicy || currentPolicy.mode === 'all') {
+      return true
+    }
+    if (!targetInfo.url) {
+      return false
+    }
+    return doesBrowserAccessPolicyAllowUrl(currentPolicy, targetInfo.url)
+  }
+
+  const isTargetVisibleToPlaywright = (targetInfo: Protocol.Target.TargetInfo): boolean => {
+    return !isRestrictedTarget(targetInfo) && isTargetAllowedByPolicy(targetInfo)
+  }
+
+  const getBlockedSessionTarget = (
+    connectedTargets: Map<string, relayState.ConnectedTarget>,
+    currentSessionId: string | undefined,
+  ): relayState.ConnectedTarget | null => {
+    if (!currentSessionId) {
+      return null
+    }
+    const target = connectedTargets.get(currentSessionId)
+    if (!target) {
+      return null
+    }
+    return isTargetAllowedByPolicy(target.targetInfo) ? null : target
+  }
+
+  const assertAllowedUrlForPolicy = ({
+    attemptedUrl,
+    action,
+    currentUrl,
+  }: {
+    attemptedUrl: string
+    action: 'open' | 'navigate' | 'use'
+    currentUrl?: string | null
+  }): void => {
+    const currentPolicy = getCurrentAccessPolicy()
+    if (!currentPolicy || currentPolicy.mode === 'all') {
+      return
+    }
+    if (doesBrowserAccessPolicyAllowUrl(currentPolicy, attemptedUrl)) {
+      return
+    }
+    throw new Error(
+      formatBrowserAccessPolicyErrorMessage({
+        policy: currentPolicy,
+        attemptedUrl,
+        action,
+        currentUrl,
+      }),
+    )
   }
 
   /**
@@ -217,6 +283,10 @@ export async function startPlayWriterCDPRelayServer({
       return target.targetInfo.type === 'page' && target.frameIds.has(frameId)
     })
   }
+
+  store.subscribe(() => {
+    emitter.emit('state:changed')
+  })
 
   const startExtensionPing = (extensionId: string): void => {
     const ext = store.getState().extensions.get(extensionId)
@@ -530,6 +600,7 @@ export async function startPlayWriterCDPRelayServer({
             sessionId: result.sessionId,
             targetId: result.targetInfo.targetId,
             targetInfo: result.targetInfo,
+            shareSource: 'auto-created',
           }),
         )
         const updatedTargets = store.getState().extensions.get(extensionId)?.connectedTargets.size || 0
@@ -644,6 +715,19 @@ export async function startPlayWriterCDPRelayServer({
     const conn = getExtensionConnection(extensionId)
     const connectedTargets = conn?.connectedTargets || new Map<string, relayState.ConnectedTarget>()
     const resolvedExtensionId = conn?.id || extensionId
+    const blockedSessionTarget = getBlockedSessionTarget(connectedTargets, sessionId)
+
+    if (blockedSessionTarget && method !== 'Page.navigate' && method !== 'Target.detachFromTarget') {
+      throw new Error(
+        formatBrowserAccessPolicyErrorMessage({
+          policy: getCurrentAccessPolicy(),
+          attemptedUrl: blockedSessionTarget.targetInfo.url || 'this page',
+          action: 'use',
+          currentUrl: blockedSessionTarget.targetInfo.url || null,
+        }),
+      )
+    }
+
     switch (method) {
       case 'Browser.getVersion': {
         return {
@@ -703,6 +787,16 @@ export async function startPlayWriterCDPRelayServer({
 
         for (const target of connectedTargets.values()) {
           if (target.targetId === attachParams.targetId) {
+            if (!isTargetVisibleToPlaywright(target.targetInfo)) {
+              throw new Error(
+                formatBrowserAccessPolicyErrorMessage({
+                  policy: getCurrentAccessPolicy(),
+                  attemptedUrl: target.targetInfo.url || 'this page',
+                  action: 'use',
+                  currentUrl: target.targetInfo.url || null,
+                }),
+              )
+            }
             return { sessionId: target.sessionId } satisfies Protocol.Target.AttachToTargetResponse
           }
         }
@@ -717,6 +811,16 @@ export async function startPlayWriterCDPRelayServer({
         if (targetId) {
           for (const target of connectedTargets.values()) {
             if (target.targetId === targetId) {
+              if (!isTargetVisibleToPlaywright(target.targetInfo)) {
+                throw new Error(
+                  formatBrowserAccessPolicyErrorMessage({
+                    policy: getCurrentAccessPolicy(),
+                    attemptedUrl: target.targetInfo.url || 'this page',
+                    action: 'use',
+                    currentUrl: target.targetInfo.url || null,
+                  }),
+                )
+              }
               return { targetInfo: target.targetInfo }
             }
           }
@@ -729,14 +833,14 @@ export async function startPlayWriterCDPRelayServer({
           }
         }
 
-        const firstTarget = Array.from(connectedTargets.values())[0]
+        const firstTarget = Array.from(connectedTargets.values()).find((target) => isTargetVisibleToPlaywright(target.targetInfo))
         return { targetInfo: firstTarget?.targetInfo }
       }
 
       case 'Target.getTargets': {
         return {
           targetInfos: Array.from(connectedTargets.values())
-            .filter((t) => !isRestrictedTarget(t.targetInfo))
+            .filter((t) => isTargetVisibleToPlaywright(t.targetInfo))
             .map((t) => ({
               ...t.targetInfo,
               attached: true,
@@ -745,6 +849,12 @@ export async function startPlayWriterCDPRelayServer({
       }
 
       case 'Target.createTarget': {
+        const createTargetParams = params as Protocol.Target.CreateTargetRequest | undefined
+        const targetUrl = createTargetParams?.url || 'about:blank'
+        assertAllowedUrlForPolicy({
+          attemptedUrl: targetUrl,
+          action: 'open',
+        })
         return await sendToExtension({
           extensionId: resolvedExtensionId,
           method: 'forwardCDPCommand',
@@ -829,6 +939,24 @@ export async function startPlayWriterCDPRelayServer({
           throw error
         }
       }
+
+      case 'Page.navigate': {
+        const navigateParams = params as Protocol.Page.NavigateRequest | undefined
+        const destinationUrl = navigateParams?.url
+        if (!destinationUrl) {
+          throw new Error('url is required for Page.navigate')
+        }
+        assertAllowedUrlForPolicy({
+          attemptedUrl: destinationUrl,
+          action: 'navigate',
+          currentUrl: blockedSessionTarget?.targetInfo.url || connectedTargets.get(sessionId || '')?.targetInfo.url || null,
+        })
+        return await sendToExtension({
+          extensionId: resolvedExtensionId,
+          method: 'forwardCDPCommand',
+          params: { sessionId, method, params, source },
+        })
+      }
     }
 
     return await sendToExtension({
@@ -893,16 +1021,19 @@ export async function startPlayWriterCDPRelayServer({
   app.get('/extension/status', (c) => {
     const defaultExtension = getExtensionConnection(null, { allowFallback: true })
     const connected = store.getState().extensions.size > 0
-    const activeTargets = defaultExtension?.connectedTargets.size || 0
+    const visibleTargets = defaultExtension
+      ? Array.from(defaultExtension.connectedTargets.values())
+          .filter((target) => isTargetVisibleToPlaywright(target.targetInfo))
+      : []
+    const activeTargets = visibleTargets.length
     const info = defaultExtension?.info
-    const targets = defaultExtension
-      ? Array.from(defaultExtension.connectedTargets.values()).map((target) => ({
+    const targets = visibleTargets.map((target) => ({
           targetId: target.targetId,
           type: target.targetInfo.type,
           title: target.targetInfo.title || '',
           url: target.targetInfo.url || '',
+          shareSource: target.shareSource || null,
         }))
-      : []
 
     return c.json({
       connected,
@@ -915,21 +1046,58 @@ export async function startPlayWriterCDPRelayServer({
 
   app.get('/extensions/status', (c) => {
     const extensions = Array.from(store.getState().extensions.values()).map((ext) => {
+      const visibleTargets = Array.from(ext.connectedTargets.values())
+        .filter((target) => isTargetVisibleToPlaywright(target.targetInfo))
       return {
         extensionId: ext.id,
         stableKey: ext.stableKey,
         browser: ext.info.browser || null,
-        activeTargets: ext.connectedTargets.size,
+        activeTargets: visibleTargets.length,
         playwriterVersion: ext.info?.version || null,
-        targets: Array.from(ext.connectedTargets.values()).map((target) => ({
+        targets: visibleTargets.map((target) => ({
           targetId: target.targetId,
           type: target.targetInfo.type,
           title: target.targetInfo.title || '',
           url: target.targetInfo.url || '',
+          shareSource: target.shareSource || null,
         })),
       }
     })
     return c.json({ extensions })
+  })
+
+  app.post('/extension/arrange-window', async (c) => {
+    try {
+      const body = (await c.req.json()) as {
+        extensionId?: string
+        targetId?: string
+        bounds?: {
+          left?: number
+          top?: number
+          width?: number
+          height?: number
+        }
+      }
+      const { extensionId, targetId, bounds } = body
+      if (!targetId || !bounds) {
+        return c.json({ success: false, error: 'targetId and bounds are required' }, 400)
+      }
+
+      const result = await sendToExtension({
+        extensionId,
+        method: 'arrangeWindowForTarget',
+        params: { targetId, bounds },
+        timeout: 5_000,
+      }) as { success?: boolean; error?: string }
+
+      return c.json({
+        success: result.success === true,
+        error: result.error,
+      })
+    } catch (error: any) {
+      logger?.error('Arrange window endpoint error:', error)
+      return c.json({ success: false, error: error.message || String(error) }, 500)
+    }
   })
 
   // CDP Discovery Endpoints - Standard Chrome DevTools Protocol HTTP API
@@ -955,7 +1123,9 @@ export async function startPlayWriterCDPRelayServer({
       const wsUrl = getCdpWsUrl(c)
       const defaultTargets = getExtensionConnection(null, { allowFallback: true })?.connectedTargets || new Map()
       return c.json(
-        Array.from(defaultTargets.values()).map((t) => ({
+        Array.from(defaultTargets.values())
+          .filter((target) => isTargetVisibleToPlaywright(target.targetInfo))
+          .map((t) => ({
           id: t.targetId,
           type: t.targetInfo.type,
           title: t.targetInfo.title,
@@ -963,14 +1133,16 @@ export async function startPlayWriterCDPRelayServer({
           url: t.targetInfo.url,
           webSocketDebuggerUrl: wsUrl,
           devtoolsFrontendUrl: `/devtools/inspector.html?ws=${wsUrl.replace('ws://', '')}`,
-        })),
+          })),
       )
     })
     .on(['GET', 'PUT'], '/json/list/', (c) => {
       const wsUrl = getCdpWsUrl(c)
       const defaultTargets = getExtensionConnection(null, { allowFallback: true })?.connectedTargets || new Map()
       return c.json(
-        Array.from(defaultTargets.values()).map((t) => ({
+        Array.from(defaultTargets.values())
+          .filter((target) => isTargetVisibleToPlaywright(target.targetInfo))
+          .map((t) => ({
           id: t.targetId,
           type: t.targetInfo.type,
           title: t.targetInfo.title,
@@ -978,14 +1150,16 @@ export async function startPlayWriterCDPRelayServer({
           url: t.targetInfo.url,
           webSocketDebuggerUrl: wsUrl,
           devtoolsFrontendUrl: `/devtools/inspector.html?ws=${wsUrl.replace('ws://', '')}`,
-        })),
+          })),
       )
     })
     .on(['GET', 'PUT'], '/json', (c) => {
       const wsUrl = getCdpWsUrl(c)
       const defaultTargets = getExtensionConnection(null, { allowFallback: true })?.connectedTargets || new Map()
       return c.json(
-        Array.from(defaultTargets.values()).map((t) => ({
+        Array.from(defaultTargets.values())
+          .filter((target) => isTargetVisibleToPlaywright(target.targetInfo))
+          .map((t) => ({
           id: t.targetId,
           type: t.targetInfo.type,
           title: t.targetInfo.title,
@@ -993,14 +1167,16 @@ export async function startPlayWriterCDPRelayServer({
           url: t.targetInfo.url,
           webSocketDebuggerUrl: wsUrl,
           devtoolsFrontendUrl: `/devtools/inspector.html?ws=${wsUrl.replace('ws://', '')}`,
-        })),
+          })),
       )
     })
     .on(['GET', 'PUT'], '/json/', (c) => {
       const wsUrl = getCdpWsUrl(c)
       const defaultTargets = getExtensionConnection(null, { allowFallback: true })?.connectedTargets || new Map()
       return c.json(
-        Array.from(defaultTargets.values()).map((t) => ({
+        Array.from(defaultTargets.values())
+          .filter((target) => isTargetVisibleToPlaywright(target.targetInfo))
+          .map((t) => ({
           id: t.targetId,
           type: t.targetInfo.type,
           title: t.targetInfo.title,
@@ -1008,7 +1184,7 @@ export async function startPlayWriterCDPRelayServer({
           url: t.targetInfo.url,
           webSocketDebuggerUrl: wsUrl,
           devtoolsFrontendUrl: `/devtools/inspector.html?ws=${wsUrl.replace('ws://', '')}`,
-        })),
+          })),
       )
     })
 
@@ -1464,8 +1640,12 @@ export async function startPlayWriterCDPRelayServer({
                   ? getPageTargetForFrameId({ extensionState: currentExtState, frameId: iframeParentFrameId })?.sessionId
                   : undefined
 
-              // Filter out restricted targets (unsupported types, extension pages, chrome:// URLs, etc.)
-              if (isRestrictedTarget(targetParams.targetInfo)) {
+              const restrictedTarget = isRestrictedTarget(targetParams.targetInfo)
+              const visibleTarget = !restrictedTarget && isTargetAllowedByPolicy(targetParams.targetInfo)
+
+              // Keep policy-blocked page targets in relay state so they can become visible
+              // again if the user loosens the policy or the page navigates back into scope.
+              if (restrictedTarget || !visibleTarget) {
                 if (targetParams.waitingForDebugger && targetParams.sessionId) {
                   void sendToExtension({
                     extensionId: connectionId,
@@ -1483,9 +1663,22 @@ export async function startPlayWriterCDPRelayServer({
                 }
                 logger?.log(
                   pc.gray(
-                    `[Server] Ignoring restricted target: ${targetParams.targetInfo.type} (${targetParams.targetInfo.url})`,
+                    `[Server] Ignoring unavailable target: ${targetParams.targetInfo.type} (${targetParams.targetInfo.url})`,
                   ),
                 )
+                if (!restrictedTarget) {
+                  store.setState((s) =>
+                    relayState.addTarget(s, {
+                      extensionId: connectionId,
+                      sessionId: targetParams.sessionId,
+                      targetId: targetParams.targetInfo.targetId,
+                      targetInfo: targetParams.targetInfo,
+                      shareSource: (targetParams.targetInfo as Protocol.Target.TargetInfo & {
+                        interpreterShareSource?: relayState.ConnectedTarget['shareSource']
+                      }).interpreterShareSource,
+                    }),
+                  )
+                }
                 return
               }
 
@@ -1510,6 +1703,9 @@ export async function startPlayWriterCDPRelayServer({
                   sessionId: targetParams.sessionId,
                   targetId: targetParams.targetInfo.targetId,
                   targetInfo: targetParams.targetInfo,
+                  shareSource: (targetParams.targetInfo as Protocol.Target.TargetInfo & {
+                    interpreterShareSource?: relayState.ConnectedTarget['shareSource']
+                  }).interpreterShareSource,
                 }),
               )
 

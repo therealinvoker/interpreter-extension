@@ -177,6 +177,70 @@ Start-Process chrome.exe -ArgumentList '--profile-directory=Default'
 
 You can collaborate with the user - they can help with captchas, difficult elements, or reproducing bugs.
 
+## js_repl persistence
+
+In the desktop app, `js_repl` persists across turns. Do not assume a fresh runtime. Browser-control bootstrap code must be idempotent and should store long-lived state on `globalThis` instead of redeclaring top-level `let` or `const` bindings.
+
+Recommended pattern:
+
+```js
+globalThis.browserBridgeHttpEndpoint ??= 'http://127.0.0.1:19988'
+globalThis.selectedBrowserSessionId ??= undefined
+globalThis.chromium ??= undefined
+globalThis.browser ??= undefined
+globalThis.context ??= undefined
+globalThis.page ??= undefined
+
+if (!globalThis.chromium) {
+  const playwrightModule = await import('playwright-core')
+  globalThis.chromium =
+    (playwrightModule.default ?? playwrightModule).chromium ?? playwrightModule.chromium
+}
+
+globalThis.ensurePage ??= async function ensurePage() {
+  const browserSessionId = globalThis.selectedBrowserSessionId
+  if (!browserSessionId) {
+    throw new Error('Set globalThis.selectedBrowserSessionId before calling ensurePage()')
+  }
+  if (!globalThis.browser?.isConnected?.()) {
+    const params = new URLSearchParams({ extensionId: browserSessionId })
+    const wsEndpoint = `ws://127.0.0.1:19988/cdp/${crypto.randomUUID()}?${params.toString()}`
+    globalThis.browser = await globalThis.chromium.connectOverCDP(wsEndpoint)
+  }
+  globalThis.context = globalThis.browser.contexts()[0]
+  globalThis.page =
+    globalThis.context.pages().find((p) => !p.url().startsWith('chrome-extension://')) ??
+    globalThis.context.pages()[0]
+
+  if (!globalThis.page) {
+    throw new Error('No shared live browser page is available.')
+  }
+  return globalThis.page
+}
+```
+
+Recommended turn structure:
+
+1. Set the session: `globalThis.selectedBrowserSessionId = '<stableKey>'`
+2. Bootstrap if needed: define `globalThis.ensurePage` and related globals only if missing
+3. Act: `const page = await globalThis.ensurePage()`
+
+Minimal follow-up turn:
+
+```js
+globalThis.selectedBrowserSessionId = '<stableKey>'
+const page = await globalThis.ensurePage()
+await page.goto('https://www.wellsfargo.com/', { waitUntil: 'domcontentloaded' })
+console.log({ title: await page.title(), url: page.url() })
+```
+
+Troubleshooting:
+
+- `Identifier has already been declared` → reuse `globalThis` state, do not redeclare top-level names
+- `X is not defined` → initialize it on `globalThis` or rerun the idempotent bootstrap
+- Bridge connected but no page → ask the user to share a live tab with Interpreter first
+- Multiple sessions → ask the user which `stableKey` to use
+
 ## context variables
 
 - `state` - object persisted between calls **within your session**. Each session has its own isolated state. Use to store pages, data, listeners (e.g., `state.page = await context.newPage()`)

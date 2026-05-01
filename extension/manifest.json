@@ -8,7 +8,8 @@
     "scripting",
     "tabGroups",
     "contextMenus",
-    "tabs"
+    "tabs",
+    "windows"
   ],
   "host_permissions": ["<all_urls>"],
   "background": {

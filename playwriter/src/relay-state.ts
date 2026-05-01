@@ -21,6 +21,7 @@ export type ConnectedTarget = {
   sessionId: string
   targetId: string
   targetInfo: Protocol.Target.TargetInfo
+  shareSource?: 'user' | 'agent-created' | 'auto-created'
   frameIds: Set<string>
 }
 
@@ -290,12 +291,14 @@ export function addTarget(
     sessionId,
     targetId,
     targetInfo,
+    shareSource,
     existingFrameIds,
   }: {
     extensionId: string
     sessionId: string
     targetId: string
     targetInfo: Protocol.Target.TargetInfo
+    shareSource?: 'user' | 'agent-created' | 'auto-created'
     /** Preserve existing frameIds if target already existed (update scenario). */
     existingFrameIds?: Set<string>
   },
@@ -311,6 +314,7 @@ export function addTarget(
     sessionId,
     targetId,
     targetInfo,
+    shareSource: shareSource ?? existingTarget?.shareSource,
     frameIds: existingFrameIds ?? existingTarget?.frameIds ?? new Set(),
   })
 
@@ -492,4 +496,3 @@ export function updateTargetUrl(
   newExtensions.set(extensionId, { ...ext, connectedTargets: newTargets })
   return { ...state, extensions: newExtensions }
 }
-
