@@ -600,6 +600,7 @@ export async function startPlayWriterCDPRelayServer({
             sessionId: result.sessionId,
             targetId: result.targetInfo.targetId,
             targetInfo: result.targetInfo,
+            shareSource: 'auto-created',
           }),
         )
         const updatedTargets = store.getState().extensions.get(extensionId)?.connectedTargets.size || 0
@@ -1031,6 +1032,7 @@ export async function startPlayWriterCDPRelayServer({
           type: target.targetInfo.type,
           title: target.targetInfo.title || '',
           url: target.targetInfo.url || '',
+          shareSource: target.shareSource || null,
         }))
 
     return c.json({
@@ -1057,10 +1059,45 @@ export async function startPlayWriterCDPRelayServer({
           type: target.targetInfo.type,
           title: target.targetInfo.title || '',
           url: target.targetInfo.url || '',
+          shareSource: target.shareSource || null,
         })),
       }
     })
     return c.json({ extensions })
+  })
+
+  app.post('/extension/arrange-window', async (c) => {
+    try {
+      const body = (await c.req.json()) as {
+        extensionId?: string
+        targetId?: string
+        bounds?: {
+          left?: number
+          top?: number
+          width?: number
+          height?: number
+        }
+      }
+      const { extensionId, targetId, bounds } = body
+      if (!targetId || !bounds) {
+        return c.json({ success: false, error: 'targetId and bounds are required' }, 400)
+      }
+
+      const result = await sendToExtension({
+        extensionId,
+        method: 'arrangeWindowForTarget',
+        params: { targetId, bounds },
+        timeout: 5_000,
+      }) as { success?: boolean; error?: string }
+
+      return c.json({
+        success: result.success === true,
+        error: result.error,
+      })
+    } catch (error: any) {
+      logger?.error('Arrange window endpoint error:', error)
+      return c.json({ success: false, error: error.message || String(error) }, 500)
+    }
   })
 
   // CDP Discovery Endpoints - Standard Chrome DevTools Protocol HTTP API
@@ -1636,6 +1673,9 @@ export async function startPlayWriterCDPRelayServer({
                       sessionId: targetParams.sessionId,
                       targetId: targetParams.targetInfo.targetId,
                       targetInfo: targetParams.targetInfo,
+                      shareSource: (targetParams.targetInfo as Protocol.Target.TargetInfo & {
+                        interpreterShareSource?: relayState.ConnectedTarget['shareSource']
+                      }).interpreterShareSource,
                     }),
                   )
                 }
@@ -1663,6 +1703,9 @@ export async function startPlayWriterCDPRelayServer({
                   sessionId: targetParams.sessionId,
                   targetId: targetParams.targetInfo.targetId,
                   targetInfo: targetParams.targetInfo,
+                  shareSource: (targetParams.targetInfo as Protocol.Target.TargetInfo & {
+                    interpreterShareSource?: relayState.ConnectedTarget['shareSource']
+                  }).interpreterShareSource,
                 }),
               )
 

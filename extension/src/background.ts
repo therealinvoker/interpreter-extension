@@ -26,6 +26,8 @@ type ExtensionConnectionInfo = {
   installId: string
 }
 
+type TabShareSource = 'user' | 'agent-created' | 'auto-created'
+
 const EXTENSION_DB_NAME = 'interpreter-extension'
 const EXTENSION_DB_VERSION = 1
 const EXTENSION_DB_STORE = 'metadata'
@@ -310,7 +312,10 @@ class ConnectionManager {
           const tab = await chrome.tabs.create({ url: 'about:blank', active: false })
           if (tab.id) {
             setTabConnecting(tab.id)
-            const { targetInfo, sessionId } = await attachTab(tab.id, { skipAttachedEvent: true })
+            const { targetInfo, sessionId } = await attachTab(tab.id, {
+              skipAttachedEvent: true,
+              shareSource: 'auto-created',
+            })
             logger.debug('Initial tab created and connected:', tab.id, 'sessionId:', sessionId)
             sendMessage({
               id: message.id,
@@ -351,6 +356,14 @@ class ConnectionManager {
           }
         }
         sendMessage({ id: message.id, result })
+        return
+      }
+
+      if (message.method === 'arrangeWindowForTarget') {
+        sendMessage({
+          id: message.id,
+          result: await arrangeWindowForTarget(message.params ?? {}),
+        })
         return
       }
 
@@ -765,6 +778,55 @@ function getTabByTargetId(targetId: string): { tabId: number; tab: TabInfo } | u
   return undefined
 }
 
+async function arrangeWindowForTarget(params: {
+  targetId?: string
+  bounds?: {
+    left?: number
+    top?: number
+    width?: number
+    height?: number
+  }
+}): Promise<{ success: true } | { success: false; error: string }> {
+  if (!params.targetId) {
+    return { success: false, error: 'targetId is required' }
+  }
+
+  const found = getTabByTargetId(params.targetId)
+  if (!found) {
+    return { success: false, error: `No shared tab found for target ${params.targetId}` }
+  }
+
+  const { bounds } = params
+  const left = Number.isFinite(bounds?.left) ? Math.round(bounds!.left!) : undefined
+  const top = Number.isFinite(bounds?.top) ? Math.round(bounds!.top!) : undefined
+  const width = Number.isFinite(bounds?.width) ? Math.max(100, Math.round(bounds!.width!)) : undefined
+  const height = Number.isFinite(bounds?.height) ? Math.max(100, Math.round(bounds!.height!)) : undefined
+
+  if (left === undefined || top === undefined || width === undefined || height === undefined) {
+    return { success: false, error: 'Complete numeric bounds are required' }
+  }
+
+  try {
+    const tab = await chrome.tabs.get(found.tabId)
+    if (tab.windowId === undefined) {
+      return { success: false, error: 'Shared tab has no owning window' }
+    }
+
+    await chrome.windows.update(tab.windowId, { state: 'normal', focused: true })
+    await chrome.tabs.update(found.tabId, { active: true })
+    await chrome.windows.update(tab.windowId, {
+      left,
+      top,
+      width,
+      height,
+      focused: true,
+    })
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error?.message || String(error) }
+  }
+}
+
 function emitChildDetachesForTab(tabId: number): void {
   const childEntries = Array.from(childSessions.entries()).filter(([_, parentTab]) => parentTab.tabId === tabId)
 
@@ -909,7 +971,7 @@ async function handleCommand(msg: ExtensionCommandMessage): Promise<any> {
       setTabConnecting(tab.id)
       logger.debug('Created tab:', tab.id, 'waiting for it to load...')
       await sleep(100)
-      const { targetInfo } = await attachTab(tab.id)
+      const { targetInfo } = await attachTab(tab.id, { shareSource: 'agent-created' })
       return { targetId: targetInfo.targetId } satisfies Protocol.Target.CreateTargetResponse
     }
 
@@ -1113,7 +1175,13 @@ async function removeRestrictedIframes(tabId: number): Promise<number> {
 
 async function attachTab(
   tabId: number,
-  { skipAttachedEvent = false }: { skipAttachedEvent?: boolean } = {},
+  {
+    skipAttachedEvent = false,
+    shareSource = 'user',
+  }: {
+    skipAttachedEvent?: boolean
+    shareSource?: TabShareSource
+  } = {},
 ): Promise<AttachTabResult> {
   const debuggee = { tabId }
   let debuggerAttached = false
@@ -1171,7 +1239,10 @@ async function attachTab(
       'Target.getTargetInfo',
     )) as Protocol.Target.GetTargetInfoResponse
 
-    const targetInfo = result.targetInfo
+    const targetInfo = {
+      ...result.targetInfo,
+      interpreterShareSource: shareSource,
+    } as Protocol.Target.TargetInfo & { interpreterShareSource: TabShareSource }
 
     // Log error if URL is empty - this causes Playwright to create broken pages
     if (!targetInfo.url || targetInfo.url === '' || targetInfo.url === ':') {
