@@ -10,6 +10,7 @@ import { startPlayWriterCDPRelayServer, type RelayServer } from './cdp-relay.js'
 import { createFileLogger } from './create-logger.js'
 import { killPortProcess } from './kill-port.js'
 import { resolveBrowserExecutablePath } from './browser-config.js'
+import type { BrowserAccessPolicy } from './browser-access-policy.js'
 
 const execAsync = promisify(exec)
 const extensionBuildQueues: Map<string, Promise<void>> = new Map()
@@ -78,6 +79,11 @@ export async function setupTestContext({
   tempDirPrefix,
   toggleExtension = false,
   additionalExtensions = [],
+  accessPolicy = {
+    mode: 'all',
+    allowedPatterns: [],
+    profilePolicies: [],
+  },
 }: {
   port: number
   tempDirPrefix: string
@@ -85,6 +91,8 @@ export async function setupTestContext({
   toggleExtension?: boolean
   /** Additional extension paths to load alongside the main playwriter extension */
   additionalExtensions?: string[]
+  /** Null intentionally starts the relay without an app policy. */
+  accessPolicy?: BrowserAccessPolicy | null
 }): Promise<TestContext> {
   await killPortProcess({ port }).catch(() => {})
 
@@ -97,7 +105,11 @@ export async function setupTestContext({
 
   const localLogPath = path.join(process.cwd(), 'relay-server.log')
   const logger = createFileLogger({ logFilePath: localLogPath })
-  const relayServer = await startPlayWriterCDPRelayServer({ port, logger })
+  const relayServer = await startPlayWriterCDPRelayServer({
+    port,
+    logger,
+    ...(accessPolicy ? { getAccessPolicy: () => accessPolicy } : {}),
+  })
 
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), tempDirPrefix))
   const extensionPath = path.resolve('../extension', distDir)

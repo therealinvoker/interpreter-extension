@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.110
+
+1. **Browser-control relay defaults to blocked without an app policy** — page control now requires an explicit allow-all or matching page policy instead of treating a missing policy as permission.
+
 ## 0.0.109
 
 1. **Relay can activate observed browser tabs** — `/extension/activate-tab` asks the connected extension to focus a listed Chrome tab by `chromeTabId`, enabling future permission prompts and computer-control flows to reveal an observed page before claiming deeper control.

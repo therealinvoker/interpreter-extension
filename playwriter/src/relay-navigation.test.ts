@@ -15,6 +15,7 @@ import {
 import './test-declarations.js'
 
 const TEST_PORT = 19992
+const NO_POLICY_TEST_PORT = 19993
 const FIXTURE_EXTENSION_PATH = path.resolve('../extension/test-fixtures/fixture-extension')
 
 describe('Relay Navigation Tests', () => {
@@ -102,6 +103,46 @@ describe('Relay Navigation Tests', () => {
       await server.close()
     }
   }, 15000)
+
+  it('should keep toggled pages out of controllable targets when no app policy is supplied', async () => {
+    let noPolicyCtx: TestContext | null = null
+    const server = await createSimpleServer({
+      routes: {
+        '/': '<!doctype html><html><body>blocked until policy</body></html>',
+      },
+    })
+
+    try {
+      noPolicyCtx = await setupTestContext({
+        port: NO_POLICY_TEST_PORT,
+        tempDirPrefix: 'pw-nav-no-policy-test-',
+        accessPolicy: null,
+      })
+      const serviceWorker = await getExtensionServiceWorker(noPolicyCtx.browserContext)
+      const page = await noPolicyCtx.browserContext.newPage()
+      await page.goto(server.baseUrl, { waitUntil: 'domcontentloaded' })
+      await page.bringToFront()
+
+      await serviceWorker.evaluate(async () => {
+        await globalThis.toggleExtensionForActiveTab()
+      })
+
+      const statusRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extension/status`)
+      expect(statusRes.status).toBe(200)
+      const statusJson = await statusRes.json() as {
+        activeTargets: number
+        targets: Array<{ url: string }>
+        browserTabs: { windows: Array<{ tabs: Array<{ url: string; shared: boolean }> }> }
+      }
+      const inventoryTabs = statusJson.browserTabs.windows.flatMap((window) => window.tabs)
+      expect(statusJson.activeTargets).toBe(0)
+      expect(statusJson.targets).toEqual([])
+      expect(inventoryTabs.some((tab) => tab.url.startsWith(server.baseUrl) && tab.shared === true)).toBe(true)
+    } finally {
+      await cleanupTestContext(noPolicyCtx)
+      await server.close()
+    }
+  }, 60000)
 
   it('should expose iframe frames when connecting to an existing page over CDP', async () => {
     const browserContext = getBrowserContext()

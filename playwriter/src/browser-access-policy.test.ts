@@ -27,6 +27,8 @@ describe('browser access policy', () => {
   })
 
   it('treats ask and deny as blocked until the app grants access', () => {
+    expect(doesBrowserAccessPolicyAllowUrl(undefined, 'https://example.com')).toBe(false)
+    expect(doesBrowserAccessPolicyAllowUrl(null, 'https://example.com')).toBe(false)
     expect(doesBrowserAccessPolicyAllowUrl({
       mode: 'ask',
       allowedPatterns: [],

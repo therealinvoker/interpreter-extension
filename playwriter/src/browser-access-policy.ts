@@ -116,10 +116,10 @@ export function doesBrowserAccessPolicyAllowUrl(
     : null
   const resolvedPolicy = profilePolicy || policy
 
-  if (!resolvedPolicy || resolvedPolicy.mode === 'all') {
+  if (resolvedPolicy?.mode === 'all') {
     return true
   }
-  if (resolvedPolicy.mode === 'ask' || resolvedPolicy.mode === 'deny') {
+  if (!resolvedPolicy || resolvedPolicy.mode === 'ask' || resolvedPolicy.mode === 'deny') {
     return false
   }
 

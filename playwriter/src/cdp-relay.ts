@@ -108,7 +108,7 @@ export async function startPlayWriterCDPRelayServer({
     policyProfileId?: string | null,
   ): boolean => {
     const currentPolicy = getCurrentAccessPolicy()
-    if (!currentPolicy || currentPolicy.mode === 'all') {
+    if (currentPolicy?.mode === 'all') {
       return true
     }
     if (!targetInfo.url) {
@@ -151,7 +151,7 @@ export async function startPlayWriterCDPRelayServer({
     policyProfileId?: string | null
   }): void => {
     const currentPolicy = getCurrentAccessPolicy()
-    if (!currentPolicy || currentPolicy.mode === 'all') {
+    if (currentPolicy?.mode === 'all') {
       return
     }
     if (doesBrowserAccessPolicyAllowUrl(currentPolicy, attemptedUrl, policyProfileId)) {
