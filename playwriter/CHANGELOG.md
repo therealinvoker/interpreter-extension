@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.106
+
+1. **Extension integration tests now load the unpacked extension reliably** — the test launcher removes Playwright's default `--disable-extensions` arg when it intentionally passes `--load-extension`, and browser discovery now recognizes the Playwright cache layout that installs `chrome-mac/Chromium.app`. The `Target.detachFromTarget` regression test now accepts current Chromium's `Not allowed` response while still proving the relay did not fail with its own `No tab found` routing error.
+
 ## 0.0.105
 
 1. **Browser skill now explains the missing-extension flow** — the bundled browser-control instructions now tell agents to send users to the Interpreter Chrome Web Store listing when the extension is not installed, then instruct them to click the extension on the target tab.

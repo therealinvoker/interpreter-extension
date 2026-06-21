@@ -106,6 +106,7 @@ export async function setupTestContext({
 
   const browserContext = await chromium.launchPersistentContext(userDataDir, {
     executablePath: browserPath,
+    ignoreDefaultArgs: ['--disable-extensions'],
     headless: !process.env.HEADFUL,
     colorScheme: 'dark',
     args: [`--disable-extensions-except=${allExtensionPaths}`, `--load-extension=${allExtensionPaths}`],

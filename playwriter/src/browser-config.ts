@@ -89,19 +89,34 @@ function getInstalledPlaywrightCacheCandidates({
   return revisions.map(({ entry }) => {
     const revisionRoot = path.join(cacheRoot, entry)
     if (platform === 'darwin') {
-      const macCandidates = ['chrome-mac-arm64', 'chrome-mac-x64', 'chrome-mac']
-      return macCandidates
-        .map((dirName) => {
-          return path.join(
-            revisionRoot,
-            dirName,
-            'Google Chrome for Testing.app',
-            'Contents',
-            'MacOS',
-            'Google Chrome for Testing',
-          )
-        })
-        .find((candidate) => existsSync(candidate)) || path.join(
+      const macCandidates = [
+        path.join(
+          revisionRoot,
+          'chrome-mac-arm64',
+          'Google Chrome for Testing.app',
+          'Contents',
+          'MacOS',
+          'Google Chrome for Testing',
+        ),
+        path.join(
+          revisionRoot,
+          'chrome-mac-x64',
+          'Google Chrome for Testing.app',
+          'Contents',
+          'MacOS',
+          'Google Chrome for Testing',
+        ),
+        path.join(
+          revisionRoot,
+          'chrome-mac',
+          'Google Chrome for Testing.app',
+          'Contents',
+          'MacOS',
+          'Google Chrome for Testing',
+        ),
+        path.join(revisionRoot, 'chrome-mac', 'Chromium.app', 'Contents', 'MacOS', 'Chromium'),
+      ]
+      return macCandidates.find((candidate) => existsSync(candidate)) || path.join(
         revisionRoot,
         'chrome-mac-arm64',
         'Google Chrome for Testing.app',

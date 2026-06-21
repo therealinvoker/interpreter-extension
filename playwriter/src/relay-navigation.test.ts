@@ -769,12 +769,12 @@ describe('Relay Navigation Tests', () => {
       })
 
       // Must not fail with extension routing error — the command must reach Chrome.
-      // Chrome returns "No session with given id" because pw-tab-* is a virtual session
-      // managed by the relay, not a real Chrome CDP session. This is expected — the key
-      // proof is that the extension routed the command to Chrome instead of throwing
-      // "No tab found" at the routing layer.
+      // Chrome rejects pw-tab-* because it is a virtual session managed by the relay,
+      // not a real Chrome CDP session. The exact Chrome error varies by browser build.
+      // The key proof is that the extension routed the command to Chrome instead of
+      // throwing "No tab found" at the routing layer.
       expect(detachResult.error?.message).not.toContain('No tab found')
-      expect(detachResult.error?.message).toContain('No session with given id')
+      expect(detachResult.error?.message).toMatch(/No session with given id|Not allowed/)
 
       ws.close()
     } finally {
