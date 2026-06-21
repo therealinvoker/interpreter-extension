@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.111
+
+1. **Relay exposes opt-in page element inventory** — `/extension/page-elements` returns bounded read-only element refs, bounds, frame metadata, and document revision for a policy-allowed observed Chrome tab without adding that data to default status polling.
+
 ## 0.0.110
 
 1. **Browser-control relay defaults to blocked without an app policy** — page control now requires an explicit allow-all or matching page policy instead of treating a missing policy as permission.

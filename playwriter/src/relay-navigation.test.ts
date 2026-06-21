@@ -138,6 +138,39 @@ describe('Relay Navigation Tests', () => {
       expect(statusJson.activeTargets).toBe(0)
       expect(statusJson.targets).toEqual([])
       expect(inventoryTabs.some((tab) => tab.url.startsWith(server.baseUrl) && tab.shared === true)).toBe(true)
+
+      const extensionsStatusRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extensions/status`)
+      const extensionsStatusJson = await extensionsStatusRes.json() as {
+        extensions: Array<{
+          extensionId: string
+          stableKey?: string
+          browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string }> }> }
+        }>
+      }
+      const extension = extensionsStatusJson.extensions.find((candidate) => {
+        return (candidate.browserTabs?.windows ?? []).some((window) => {
+          return (window.tabs ?? []).some((tab) => tab.url.startsWith(server.baseUrl))
+        })
+      })
+      const blockedTab = extension?.browserTabs?.windows
+        ?.flatMap((window) => window.tabs ?? [])
+        .find((tab) => tab.url.startsWith(server.baseUrl))
+      expect(extension).toBeDefined()
+      expect(blockedTab).toBeDefined()
+
+      const pageElementsRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extension/page-elements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: blockedTab!.chromeTabId,
+        }),
+      })
+      expect(pageElementsRes.status).toBe(403)
+      await expect(pageElementsRes.json()).resolves.toMatchObject({
+        success: false,
+        error: expect.stringContaining('Interpreter browser settings blocked this request'),
+      })
     } finally {
       await cleanupTestContext(noPolicyCtx)
       await server.close()
@@ -684,6 +717,60 @@ describe('Relay Navigation Tests', () => {
       active: true,
       shared: false,
     })
+
+    const elementInventoryRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-elements`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: extensionWithUnsharedTab!.stableKey || extensionWithUnsharedTab!.extensionId,
+        chromeTabId: sharedBrowserTab!.chromeTabId,
+        maxElements: 10,
+      }),
+    })
+    expect(elementInventoryRes.status).toBe(200)
+    const elementInventoryJson = await elementInventoryRes.json() as {
+      success: boolean
+      chromeTabId: number
+      frames: Array<{
+        frameId: number
+        url: string
+        documentRevision: string
+        viewport: {
+          width: number
+          height: number
+          scrollX: number
+          scrollY: number
+          devicePixelRatio: number
+        }
+        elements: Array<{
+          refId: string
+          role: string
+          bounds: { x: number; y: number; width: number; height: number }
+        }>
+      }>
+    }
+    expect(elementInventoryJson.success).toBe(true)
+    expect(elementInventoryJson.chromeTabId).toBe(sharedBrowserTab!.chromeTabId)
+    expect(elementInventoryJson.frames.length).toBeGreaterThan(0)
+    expect(elementInventoryJson.frames[0]).toMatchObject({
+      frameId: expect.any(Number),
+      url: expect.stringContaining('example.com'),
+      documentRevision: expect.any(String),
+      viewport: {
+        width: expect.any(Number),
+        height: expect.any(Number),
+        scrollX: expect.any(Number),
+        scrollY: expect.any(Number),
+        devicePixelRatio: expect.any(Number),
+      },
+    })
+    expect(elementInventoryJson.frames[0].elements.length).toBeLessThanOrEqual(10)
+    expect(elementInventoryJson.frames[0].elements.every((element) => {
+      return element.refId.startsWith(`browser-element:${elementInventoryJson.frames[0].documentRevision}:`)
+        && Number.isFinite(element.bounds.x)
+        && element.bounds.width > 0
+        && element.bounds.height > 0
+    })).toBe(true)
 
     await unsharedPage.close()
     await page.close()

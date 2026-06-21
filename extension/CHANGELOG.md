@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.91
+
+### Changes
+
+- **Expose bounded page element inventory to the local relay**: Interpreter can request read-only DOM element refs, bounds, frame metadata, and document revision for a policy-allowed tab through the private relay.
+
 ## 0.0.90
 
 ### Changes

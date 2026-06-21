@@ -32,6 +32,7 @@ const EXTENSION_DB_NAME = 'interpreter-extension'
 const EXTENSION_DB_VERSION = 1
 const EXTENSION_DB_STORE = 'metadata'
 const EXTENSION_INSTALL_ID_KEY = 'relay-install-id'
+const MAX_PAGE_ELEMENT_INVENTORY_COUNT = 200
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -379,6 +380,14 @@ class ConnectionManager {
         sendMessage({
           id: message.id,
           result: await listBrowserTabs(),
+        })
+        return
+      }
+
+      if (message.method === 'getPageElementInventory') {
+        sendMessage({
+          id: message.id,
+          result: await getPageElementInventory(message.params ?? {}),
         })
         return
       }
@@ -925,6 +934,266 @@ async function listBrowserTabs(): Promise<{
           }
         }),
     })),
+  }
+}
+
+type PageElementInventoryResult =
+  | {
+      success: true
+      chromeTabId: number
+      frames: Array<{
+        frameId: number
+        chromeDocumentId: string | null
+        url: string
+        documentRevision: string
+        viewport: {
+          width: number
+          height: number
+          scrollX: number
+          scrollY: number
+          devicePixelRatio: number
+        }
+        elements: Array<{
+          refId: string
+          index: number
+          tagName: string
+          role: string
+          name: string
+          text: string
+          value: string | null
+          inputType: string | null
+          checked: boolean | null
+          disabled: boolean
+          editable: boolean
+          clickable: boolean
+          bounds: {
+            x: number
+            y: number
+            width: number
+            height: number
+          }
+        }>
+      }>
+    }
+  | {
+      success: false
+      error: string
+    }
+
+async function getPageElementInventory(params: {
+  chromeTabId?: number
+  maxElements?: number
+}): Promise<PageElementInventoryResult> {
+  const chromeTabId = Number.isInteger(params.chromeTabId) ? params.chromeTabId : null
+  if (!chromeTabId || chromeTabId < 1) {
+    return { success: false, error: 'chromeTabId is required' }
+  }
+
+  const maxElements = Number.isInteger(params.maxElements)
+    ? Math.max(1, Math.min(params.maxElements!, MAX_PAGE_ELEMENT_INVENTORY_COUNT))
+    : 80
+
+  try {
+    await chrome.tabs.get(chromeTabId)
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: chromeTabId, allFrames: true },
+      args: [maxElements],
+      func: (maxElementsPerFrame: number) => {
+        type InventoryElement = {
+          refId: string
+          index: number
+          tagName: string
+          role: string
+          name: string
+          text: string
+          value: string | null
+          inputType: string | null
+          checked: boolean | null
+          disabled: boolean
+          editable: boolean
+          clickable: boolean
+          bounds: {
+            x: number
+            y: number
+            width: number
+            height: number
+          }
+        }
+
+        const compactText = (value: string | null | undefined, maxLength: number) => {
+          return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, maxLength)
+        }
+
+        const stableHash = (value: string) => {
+          let hash = 2166136261
+          for (let i = 0; i < value.length; i += 1) {
+            hash ^= value.charCodeAt(i)
+            hash = Math.imul(hash, 16777619)
+          }
+          return (hash >>> 0).toString(36)
+        }
+
+        const attribute = (element: Element, name: string) => {
+          return compactText(element.getAttribute(name), 240)
+        }
+
+        const roleForElement = (element: HTMLElement) => {
+          const explicitRole = attribute(element, 'role')
+          if (explicitRole) return explicitRole
+          const tagName = element.tagName.toLowerCase()
+          if (tagName === 'a') return 'link'
+          if (tagName === 'button') return 'button'
+          if (tagName === 'select') return 'combobox'
+          if (tagName === 'textarea') return 'textbox'
+          if (tagName === 'input') {
+            const type = (element as HTMLInputElement).type || 'text'
+            if (type === 'checkbox') return 'checkbox'
+            if (type === 'radio') return 'radio'
+            if (type === 'button' || type === 'submit' || type === 'reset') return 'button'
+            return 'textbox'
+          }
+          if (element.isContentEditable) return 'textbox'
+          return tagName
+        }
+
+        const nameForElement = (element: HTMLElement) => {
+          return compactText(
+            element.getAttribute('aria-label')
+              || element.getAttribute('title')
+              || element.getAttribute('alt')
+              || element.getAttribute('placeholder')
+              || element.getAttribute('name')
+              || element.textContent,
+            240,
+          )
+        }
+
+        const valueForElement = (element: HTMLElement) => {
+          if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+            return compactText(element.value, 240)
+          }
+          return null
+        }
+
+        const isElementVisible = (element: HTMLElement) => {
+          const style = window.getComputedStyle(element)
+          if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
+            return false
+          }
+          const rect = element.getBoundingClientRect()
+          return rect.width > 0 && rect.height > 0
+        }
+
+        const isClickable = (element: HTMLElement) => {
+          const tagName = element.tagName.toLowerCase()
+          return tagName === 'a'
+            || tagName === 'button'
+            || element.getAttribute('role') === 'button'
+            || typeof element.onclick === 'function'
+            || element.tabIndex >= 0
+        }
+
+        const isEditable = (element: HTMLElement) => {
+          return element instanceof HTMLInputElement
+            || element instanceof HTMLTextAreaElement
+            || element instanceof HTMLSelectElement
+            || element.isContentEditable
+        }
+
+        const candidates = Array.from(document.querySelectorAll<HTMLElement>(
+          'a, button, input, textarea, select, summary, [role], [tabindex], [contenteditable="true"], [onclick]',
+        ))
+        const elements: InventoryElement[] = []
+
+        for (const element of candidates) {
+          if (elements.length >= maxElementsPerFrame) break
+          if (!isElementVisible(element)) continue
+
+          const rect = element.getBoundingClientRect()
+          const input = element instanceof HTMLInputElement ? element : null
+          const index = elements.length
+          const role = roleForElement(element)
+          const name = nameForElement(element)
+          const text = compactText(element.textContent, 500)
+          const value = valueForElement(element)
+
+          elements.push({
+            refId: '',
+            index,
+            tagName: element.tagName.toLowerCase(),
+            role,
+            name,
+            text,
+            value,
+            inputType: input?.type ?? null,
+            checked: input && (input.type === 'checkbox' || input.type === 'radio') ? input.checked : null,
+            disabled: Boolean((element as HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).disabled),
+            editable: isEditable(element),
+            clickable: isClickable(element),
+            bounds: {
+              x: Math.round(rect.x),
+              y: Math.round(rect.y),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+            },
+          })
+        }
+        const documentRevision = stableHash(JSON.stringify({
+          url: window.location.href,
+          elements: elements.map((element) => ({
+            index: element.index,
+            tagName: element.tagName,
+            role: element.role,
+            name: element.name,
+            text: element.text,
+            value: element.value,
+            inputType: element.inputType,
+            checked: element.checked,
+            disabled: element.disabled,
+            editable: element.editable,
+            clickable: element.clickable,
+            bounds: element.bounds,
+          })),
+        }))
+        for (const element of elements) {
+          element.refId = `browser-element:${documentRevision}:${element.index}`
+        }
+
+        return {
+          url: window.location.href,
+          documentRevision,
+          viewport: {
+            width: window.innerWidth,
+            height: window.innerHeight,
+            scrollX: window.scrollX,
+            scrollY: window.scrollY,
+            devicePixelRatio: window.devicePixelRatio,
+          },
+          elements,
+        }
+      },
+    })
+
+    return {
+      success: true,
+      chromeTabId,
+      frames: results.map((result) => ({
+        frameId: result.frameId,
+        chromeDocumentId: typeof result.documentId === 'string' ? result.documentId : null,
+        url: result.result?.url ?? '',
+        documentRevision: result.result?.documentRevision ?? '',
+        viewport: result.result?.viewport ?? {
+          width: 0,
+          height: 0,
+          scrollX: 0,
+          scrollY: 0,
+          devicePixelRatio: 1,
+        },
+        elements: result.result?.elements ?? [],
+      })),
+    }
+  } catch (error: any) {
+    return { success: false, error: error?.message || String(error) }
   }
 }
 

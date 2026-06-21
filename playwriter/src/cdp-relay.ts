@@ -307,6 +307,44 @@ export async function startPlayWriterCDPRelayServer({
     }>
   }
 
+  type PageElementInventory = {
+    success: boolean
+    error?: string
+    chromeTabId?: number
+    frames?: Array<{
+      frameId: number
+      url: string
+      documentRevision: string
+      viewport: {
+        width: number
+        height: number
+        scrollX: number
+        scrollY: number
+        devicePixelRatio: number
+      }
+      elements: Array<{
+        refId: string
+        index: number
+        tagName: string
+        role: string
+        name: string
+        text: string
+        value: string | null
+        inputType: string | null
+        checked: boolean | null
+        disabled: boolean
+        editable: boolean
+        clickable: boolean
+        bounds: {
+          x: number
+          y: number
+          width: number
+          height: number
+        }
+      }>
+    }>
+  }
+
   async function getBrowserTabInventory(extensionId: string): Promise<BrowserTabInventory> {
     try {
       const result = await sendToExtension({
@@ -1185,6 +1223,69 @@ export async function startPlayWriterCDPRelayServer({
       })
     } catch (error: any) {
       logger?.error('Activate tab endpoint error:', error)
+      return c.json({ success: false, error: error.message || String(error) }, 500)
+    }
+  })
+
+  app.post('/extension/page-elements', async (c) => {
+    try {
+      const body = (await c.req.json()) as {
+        extensionId?: string
+        chromeTabId?: number
+        maxElements?: number
+      }
+      const { extensionId, chromeTabId, maxElements } = body
+      if (typeof chromeTabId !== 'number' || !Number.isInteger(chromeTabId) || chromeTabId < 1) {
+        return c.json({ success: false, error: 'chromeTabId is required' }, 400)
+      }
+      if (maxElements !== undefined && (!Number.isInteger(maxElements) || maxElements < 1)) {
+        return c.json({ success: false, error: 'maxElements must be a positive integer' }, 400)
+      }
+
+      const extension = getExtensionConnection(extensionId)
+      if (!extension) {
+        return c.json({ success: false, error: 'Extension not connected' }, 400)
+      }
+      const browserTabs = await getBrowserTabInventory(extension.id)
+      const browserTab = browserTabs.windows
+        .flatMap((window) => window.tabs)
+        .find((tab) => tab.chromeTabId === chromeTabId)
+      if (!browserTab) {
+        return c.json({ success: false, error: 'Browser tab not found' }, 404)
+      }
+      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey)) {
+        return c.json({
+          success: false,
+          error: formatBrowserAccessPolicyErrorMessage({
+            policy: getCurrentAccessPolicy(),
+            attemptedUrl: browserTab.url,
+            action: 'use',
+            currentUrl: browserTab.url,
+          }),
+        }, 403)
+      }
+
+      const result = await sendToExtension({
+        extensionId: extension.id,
+        method: 'getPageElementInventory',
+        params: { chromeTabId, maxElements },
+        timeout: 5_000,
+      }) as PageElementInventory
+
+      if (result.success !== true) {
+        return c.json({
+          success: false,
+          error: result.error || 'Page element inventory failed',
+        }, 400)
+      }
+
+      return c.json({
+        success: true,
+        chromeTabId: result.chromeTabId ?? chromeTabId,
+        frames: result.frames ?? [],
+      })
+    } catch (error: any) {
+      logger?.error('Page elements endpoint error:', error)
       return c.json({ success: false, error: error.message || String(error) }, 500)
     }
   })
