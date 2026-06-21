@@ -274,6 +274,47 @@ export async function startPlayWriterCDPRelayServer({
     runtimeEnableWaiters.delete(event.sessionId)
   }
 
+  type BrowserTabInventory = {
+    windows: Array<{
+      windowId: number
+      focused: boolean
+      type: string
+      state: string
+      tabs: Array<{
+        chromeTabId: number
+        windowId: number
+        index: number
+        active: boolean
+        highlighted: boolean
+        pinned: boolean
+        title: string
+        url: string
+        status: string
+        shared: boolean
+        shareState?: string
+        targetId?: string
+        sessionId?: string
+      }>
+    }>
+  }
+
+  async function getBrowserTabInventory(extensionId: string): Promise<BrowserTabInventory> {
+    try {
+      const result = await sendToExtension({
+        extensionId,
+        method: 'listBrowserTabs',
+        timeout: 5_000,
+      })
+      if (!result || typeof result !== 'object' || !Array.isArray((result as { windows?: unknown }).windows)) {
+        return { windows: [] }
+      }
+      return result as BrowserTabInventory
+    } catch (error) {
+      logger?.error('Failed to list browser tabs:', error)
+      return { windows: [] }
+    }
+  }
+
   const getPageTargetForFrameId = ({
     extensionState,
     frameId,
@@ -1020,7 +1061,7 @@ export async function startPlayWriterCDPRelayServer({
     return c.json({ version: VERSION })
   })
 
-  app.get('/extension/status', (c) => {
+  app.get('/extension/status', async (c) => {
     const defaultExtension = getExtensionConnection(null, { allowFallback: true })
     const connected = store.getState().extensions.size > 0
     const visibleTargets = defaultExtension
@@ -1036,6 +1077,7 @@ export async function startPlayWriterCDPRelayServer({
           url: target.targetInfo.url || '',
           shareSource: target.shareSource || null,
         }))
+    const browserTabs = defaultExtension ? await getBrowserTabInventory(defaultExtension.id) : { windows: [] }
 
     return c.json({
       connected,
@@ -1043,11 +1085,12 @@ export async function startPlayWriterCDPRelayServer({
       browser: info?.browser || null,
       playwriterVersion: info?.version || null,
       targets,
+      browserTabs,
     })
   })
 
-  app.get('/extensions/status', (c) => {
-    const extensions = Array.from(store.getState().extensions.values()).map((ext) => {
+  app.get('/extensions/status', async (c) => {
+    const extensions = await Promise.all(Array.from(store.getState().extensions.values()).map(async (ext) => {
       const visibleTargets = Array.from(ext.connectedTargets.values())
         .filter((target) => isTargetVisibleToPlaywright(target.targetInfo))
       return {
@@ -1063,8 +1106,9 @@ export async function startPlayWriterCDPRelayServer({
           url: target.targetInfo.url || '',
           shareSource: target.shareSource || null,
         })),
+        browserTabs: await getBrowserTabInventory(ext.id),
       }
-    })
+    }))
     return c.json({ extensions })
   })
 

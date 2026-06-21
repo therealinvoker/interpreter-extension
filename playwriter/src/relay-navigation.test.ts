@@ -560,6 +560,10 @@ describe('Relay Navigation Tests', () => {
     const putRes = await fetch(`http://127.0.0.1:${TEST_PORT}/json/version`, { method: 'PUT' })
     expect(putRes.status).toBe(200)
 
+    const unsharedPage = await browserContext.newPage()
+    await unsharedPage.goto('https://example.com/?test=unshared-tab-inventory')
+    await page.bringToFront()
+
     const extensionsStatusRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extensions/status`)
     expect(extensionsStatusRes.status).toBe(200)
     const extensionsStatusJson = (await extensionsStatusRes.json()) as {
@@ -567,6 +571,21 @@ describe('Relay Navigation Tests', () => {
         extensionId: string
         stableKey?: string
         targets?: Array<{ title: string; url: string; type: string }>
+        browserTabs?: {
+          windows?: Array<{
+            windowId: number
+            focused: boolean
+            tabs?: Array<{
+              chromeTabId: number
+              windowId: number
+              active: boolean
+              title: string
+              url: string
+              shared: boolean
+              targetId?: string
+            }>
+          }>
+        }
       }>
     }
     expect(extensionsStatusJson.extensions.length).toBeGreaterThan(0)
@@ -578,6 +597,24 @@ describe('Relay Navigation Tests', () => {
       }),
     ).toBe(true)
 
+    const browserTabs = extensionsStatusJson.extensions.flatMap((extension) => {
+      return (extension.browserTabs?.windows ?? []).flatMap((window) => window.tabs ?? [])
+    })
+    const sharedBrowserTab = browserTabs.find((tab) => tab.url.includes('example.com') && !tab.url.includes('unshared-tab-inventory'))
+    const unsharedBrowserTab = browserTabs.find((tab) => tab.url.includes('unshared-tab-inventory'))
+    expect(sharedBrowserTab).toMatchObject({
+      chromeTabId: expect.any(Number),
+      windowId: expect.any(Number),
+      shared: true,
+      targetId: expect.any(String),
+    })
+    expect(unsharedBrowserTab).toMatchObject({
+      chromeTabId: expect.any(Number),
+      windowId: expect.any(Number),
+      shared: false,
+    })
+
+    await unsharedPage.close()
     await page.close()
   }, 60000)
 

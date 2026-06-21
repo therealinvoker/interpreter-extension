@@ -367,6 +367,14 @@ class ConnectionManager {
         return
       }
 
+      if (message.method === 'listBrowserTabs') {
+        sendMessage({
+          id: message.id,
+          result: await listBrowserTabs(),
+        })
+        return
+      }
+
       const response: ExtensionResponseMessage = { id: message.id }
       try {
         response.result = await handleCommand(message as ExtensionCommandMessage)
@@ -824,6 +832,64 @@ async function arrangeWindowForTarget(params: {
     return { success: true }
   } catch (error: any) {
     return { success: false, error: error?.message || String(error) }
+  }
+}
+
+async function listBrowserTabs(): Promise<{
+  windows: Array<{
+    windowId: number
+    focused: boolean
+    type: string
+    state: string
+    tabs: Array<{
+      chromeTabId: number
+      windowId: number
+      index: number
+      active: boolean
+      highlighted: boolean
+      pinned: boolean
+      title: string
+      url: string
+      status: string
+      shared: boolean
+      shareState?: string
+      targetId?: string
+      sessionId?: string
+    }>
+  }>
+}> {
+  const sharedTabs = store.getState().tabs
+  const windows = await chrome.windows.getAll({ populate: true })
+
+  return {
+    windows: windows.map((window) => ({
+      windowId: window.id ?? -1,
+      focused: Boolean(window.focused),
+      type: window.type ?? 'unknown',
+      state: window.state ?? 'unknown',
+      tabs: (window.tabs ?? [])
+        .filter((tab): tab is chrome.tabs.Tab & { id: number; windowId: number } => {
+          return typeof tab.id === 'number' && typeof tab.windowId === 'number'
+        })
+        .map((tab) => {
+          const shared = sharedTabs.get(tab.id)
+          return {
+            chromeTabId: tab.id,
+            windowId: tab.windowId,
+            index: tab.index,
+            active: Boolean(tab.active),
+            highlighted: Boolean(tab.highlighted),
+            pinned: Boolean(tab.pinned),
+            title: tab.title ?? '',
+            url: tab.url ?? '',
+            status: tab.status ?? 'unknown',
+            shared: Boolean(shared),
+            shareState: shared?.state,
+            targetId: shared?.targetId,
+            sessionId: shared?.sessionId,
+          }
+        }),
+    })),
   }
 }
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.107
+
+1. **Relay status now includes read-only browser tab inventory** — `/extension/status` and `/extensions/status` report Chrome windows and tabs separately from Playwright-visible targets, including whether each tab is currently shared and which target/session it maps to when applicable.
+
 ## 0.0.106
 
 1. **Extension integration tests now load the unpacked extension reliably** — the test launcher removes Playwright's default `--disable-extensions` arg when it intentionally passes `--load-extension`, and browser discovery now recognizes the Playwright cache layout that installs `chrome-mac/Chromium.app`. The `Target.detachFromTarget` regression test now accepts current Chromium's `Not allowed` response while still proving the relay did not fail with its own `No tab found` routing error.

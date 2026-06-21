@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.89
+
+### Changes
+
+- **Expose read-only browser tab inventory to the local relay**: The background worker can now list current Chrome windows and tabs for Interpreter's local browser-control status, while still marking which tabs are actually shared/controllable through the extension.
+
 ## 0.0.88
 
 ### Changes
