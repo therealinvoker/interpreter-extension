@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.109
+
+1. **Relay can activate observed browser tabs** — `/extension/activate-tab` asks the connected extension to focus a listed Chrome tab by `chromeTabId`, enabling future permission prompts and computer-control flows to reveal an observed page before claiming deeper control.
+
 ## 0.0.108
 
 1. **Browser access policy now supports profile-specific rules** — the relay evaluates `profilePolicies` with the extension stable key, so Chrome profiles can have separate ask, deny, allow-all, or matching-page access behavior.

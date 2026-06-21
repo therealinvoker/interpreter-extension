@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.90
+
+### Changes
+
+- **Allow the local relay to activate observed browser tabs**: Interpreter can now ask the extension to focus a listed Chrome tab without requiring that tab to already be a controllable Playwright target.
+
 ## 0.0.89
 
 ### Changes

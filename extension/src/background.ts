@@ -367,6 +367,14 @@ class ConnectionManager {
         return
       }
 
+      if (message.method === 'activateBrowserTab') {
+        sendMessage({
+          id: message.id,
+          result: await activateBrowserTab(message.params ?? {}),
+        })
+        return
+      }
+
       if (message.method === 'listBrowserTabs') {
         sendMessage({
           id: message.id,
@@ -829,6 +837,33 @@ async function arrangeWindowForTarget(params: {
       height,
       focused: true,
     })
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error?.message || String(error) }
+  }
+}
+
+async function activateBrowserTab(params: {
+  chromeTabId?: number
+  windowId?: number
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const chromeTabId = Number.isInteger(params.chromeTabId) ? params.chromeTabId : null
+  if (!chromeTabId || chromeTabId < 1) {
+    return { success: false, error: 'chromeTabId is required' }
+  }
+
+  try {
+    const tab = await chrome.tabs.get(chromeTabId)
+    if (tab.windowId === undefined) {
+      return { success: false, error: 'Browser tab has no owning window' }
+    }
+    if (params.windowId !== undefined && tab.windowId !== params.windowId) {
+      return { success: false, error: 'Browser tab window does not match requested windowId' }
+    }
+
+    await chrome.windows.update(tab.windowId, { state: 'normal', focused: true })
+    await chrome.tabs.update(chromeTabId, { active: true })
+    await chrome.windows.update(tab.windowId, { focused: true })
     return { success: true }
   } catch (error: any) {
     return { success: false, error: error?.message || String(error) }

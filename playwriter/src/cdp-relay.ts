@@ -1160,6 +1160,35 @@ export async function startPlayWriterCDPRelayServer({
     }
   })
 
+  app.post('/extension/activate-tab', async (c) => {
+    try {
+      const body = (await c.req.json()) as {
+        extensionId?: string
+        chromeTabId?: number
+        windowId?: number
+      }
+      const { extensionId, chromeTabId, windowId } = body
+      if (typeof chromeTabId !== 'number' || !Number.isInteger(chromeTabId) || chromeTabId < 1) {
+        return c.json({ success: false, error: 'chromeTabId is required' }, 400)
+      }
+
+      const result = await sendToExtension({
+        extensionId,
+        method: 'activateBrowserTab',
+        params: { chromeTabId, windowId },
+        timeout: 5_000,
+      }) as { success?: boolean; error?: string }
+
+      return c.json({
+        success: result.success === true,
+        error: result.error,
+      })
+    } catch (error: any) {
+      logger?.error('Activate tab endpoint error:', error)
+      return c.json({ success: false, error: error.message || String(error) }, 500)
+    }
+  })
+
   // CDP Discovery Endpoints - Standard Chrome DevTools Protocol HTTP API
   // Allows tools like Playwright to discover the WebSocket URL via http://host:port
   // Spec: https://chromium.googlesource.com/chromium/src/+/main/content/browser/devtools/devtools_http_handler.cc

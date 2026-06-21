@@ -614,6 +614,36 @@ describe('Relay Navigation Tests', () => {
       shared: false,
     })
 
+    const extensionWithUnsharedTab = extensionsStatusJson.extensions.find((extension) => {
+      return (extension.browserTabs?.windows ?? []).some((window) => {
+        return (window.tabs ?? []).some((tab) => tab.chromeTabId === unsharedBrowserTab!.chromeTabId)
+      })
+    })
+    expect(extensionWithUnsharedTab).toBeDefined()
+
+    const activateRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/activate-tab`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: extensionWithUnsharedTab!.stableKey || extensionWithUnsharedTab!.extensionId,
+        chromeTabId: unsharedBrowserTab!.chromeTabId,
+        windowId: unsharedBrowserTab!.windowId,
+      }),
+    })
+    expect(activateRes.status).toBe(200)
+    await expect(activateRes.json()).resolves.toMatchObject({ success: true })
+
+    const activatedStatusRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extensions/status`)
+    expect(activatedStatusRes.status).toBe(200)
+    const activatedStatusJson = (await activatedStatusRes.json()) as typeof extensionsStatusJson
+    const activatedTabs = activatedStatusJson.extensions.flatMap((extension) => {
+      return (extension.browserTabs?.windows ?? []).flatMap((window) => window.tabs ?? [])
+    })
+    expect(activatedTabs.find((tab) => tab.chromeTabId === unsharedBrowserTab!.chromeTabId)).toMatchObject({
+      active: true,
+      shared: false,
+    })
+
     await unsharedPage.close()
     await page.close()
   }, 60000)
