@@ -74,6 +74,7 @@ export async function startPlayWriterCDPRelayServer({
   token,
   logger,
   cdpLogger,
+  enableCliRoutes = false,
   getAccessPolicy,
 }: {
   port?: number
@@ -81,6 +82,7 @@ export async function startPlayWriterCDPRelayServer({
   token?: string
   logger?: { log(...args: any[]): void; error(...args: any[]): void }
   cdpLogger?: CdpLogger
+  enableCliRoutes?: boolean
   getAccessPolicy?: () => BrowserAccessPolicy
 } = {}): Promise<RelayServer> {
   const emitter = new EventEmitter()
@@ -1937,250 +1939,252 @@ export async function startPlayWriterCDPRelayServer({
     }),
   )
 
-  // ============================================================================
-  // CLI Execute Endpoints - For stateful code execution via CLI
-  // ============================================================================
+  if (enableCliRoutes) {
+    // ============================================================================
+    // CLI Execute Endpoints - For stateful code execution via CLI
+    // ============================================================================
 
-  // Session counter for suggesting next session number
-  let nextSessionNumber = 1
+    // Session counter for suggesting next session number
+    let nextSessionNumber = 1
 
-  // Lazy-load ExecutorManager to avoid circular imports and only when needed
-  let executorManager: import('./executor.js').ExecutorManager | null = null
+    // Lazy-load ExecutorManager to avoid circular imports and only when needed
+    let executorManager: import('./executor.js').ExecutorManager | null = null
 
-  const getExecutorManager = async () => {
-    if (!executorManager) {
-      const { ExecutorManager } = await import('./executor.js')
-      // Pass config instead of URL so executor can generate unique client IDs for each connection
-      executorManager = new ExecutorManager({
-        cdpConfig: { host: '127.0.0.1', port },
-        logger: logger || { log: console.error, error: console.error },
-      })
-    }
-    return executorManager
-  }
-
-  // ============================================================================
-  // Security middleware for privileged HTTP routes (/cli/*)
-  //
-  // CORS alone does NOT prevent cross-origin POST attacks. Browsers skip the
-  // preflight for "simple" requests (POST + Content-Type: text/plain), so a
-  // malicious website can fire-and-forget a POST to localhost:19988/cli/execute
-  // and the code executes before CORS even enters the picture.
-  //
-  // Two layers of defense:
-  // 1. Sec-Fetch-Site: browsers set this forbidden header on every request.
-  //    If present and not "same-origin"/"none", it's a cross-origin browser
-  //    request → reject. Node.js clients don't send it → unaffected.
-  // 2. Content-Type must be application/json on POST. This forces a CORS
-  //    preflight as a fallback, which our CORS policy already blocks.
-  // 3. When token mode is enabled (remote access), require the token.
-  // ============================================================================
-  const privilegedRouteMiddleware = async (
-    c: Parameters<Parameters<typeof app.use>[1]>[0],
-    next: () => Promise<void>,
-  ) => {
-    // Block cross-origin browser requests via Sec-Fetch-Site header.
-    // Browsers always set this forbidden header; it cannot be spoofed.
-    // Non-browser clients (Node.js, curl, MCP) don't send it.
-    const secFetchSite = c.req.header('sec-fetch-site')
-    if (secFetchSite && secFetchSite !== 'same-origin' && secFetchSite !== 'none') {
-      logger?.log(pc.red(`Rejecting ${c.req.path}: cross-origin browser request (Sec-Fetch-Site: ${secFetchSite})`))
-      return c.text('Forbidden - Cross-origin requests not allowed', 403)
-    }
-
-    // Require application/json on POST to force CORS preflight as backup defense.
-    // A text/plain POST is a "simple request" that skips preflight entirely.
-    if (c.req.method === 'POST') {
-      const contentType = c.req.header('content-type') || ''
-      if (!contentType.includes('application/json')) {
-        logger?.log(pc.red(`Rejecting ${c.req.path}: Content-Type must be application/json, got: ${contentType}`))
-        return c.text('Content-Type must be application/json', 415)
+    const getExecutorManager = async () => {
+      if (!executorManager) {
+        const { ExecutorManager } = await import('./executor.js')
+        // Pass config instead of URL so executor can generate unique client IDs for each connection
+        executorManager = new ExecutorManager({
+          cdpConfig: { host: '127.0.0.1', port },
+          logger: logger || { log: console.error, error: console.error },
+        })
       }
+      return executorManager
     }
 
-    // When token mode is enabled (remote/serve mode), require authentication.
-    if (token) {
-      const authHeader = c.req.header('authorization') || ''
-      const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
-      const url = new URL(c.req.url, 'http://localhost')
-      const queryToken = url.searchParams.get('token')
-      if (bearerToken !== token && queryToken !== token) {
-        logger?.log(pc.red(`Rejecting ${c.req.path}: invalid or missing token`))
-        return c.text('Unauthorized', 401)
-      }
-    }
-
-    return next()
-  }
-
-  app.use('/cli/*', privilegedRouteMiddleware)
-
-  app.post('/cli/execute', async (c) => {
-    try {
-      const body = (await c.req.json()) as { sessionId: string | number; code: string; timeout?: number }
-      const sessionId = normalizeSessionId(body.sessionId)
-      const { code, timeout = 10000 } = body
-
-      if (!sessionId || !code) {
-        return c.json({ error: 'sessionId and code are required' }, 400)
+    // ============================================================================
+    // Security middleware for privileged HTTP routes (/cli/*)
+    //
+    // CORS alone does NOT prevent cross-origin POST attacks. Browsers skip the
+    // preflight for "simple" requests (POST + Content-Type: text/plain), so a
+    // malicious website can fire-and-forget a POST to localhost:19988/cli/execute
+    // and the code executes before CORS even enters the picture.
+    //
+    // Two layers of defense:
+    // 1. Sec-Fetch-Site: browsers set this forbidden header on every request.
+    //    If present and not "same-origin"/"none", it's a cross-origin browser
+    //    request → reject. Node.js clients don't send it → unaffected.
+    // 2. Content-Type must be application/json on POST. This forces a CORS
+    //    preflight as a fallback, which our CORS policy already blocks.
+    // 3. When token mode is enabled (remote access), require the token.
+    // ============================================================================
+    const privilegedRouteMiddleware = async (
+      c: Parameters<Parameters<typeof app.use>[1]>[0],
+      next: () => Promise<void>,
+    ) => {
+      // Block cross-origin browser requests via Sec-Fetch-Site header.
+      // Browsers always set this forbidden header; it cannot be spoofed.
+      // Non-browser clients (Node.js, curl, MCP) don't send it.
+      const secFetchSite = c.req.header('sec-fetch-site')
+      if (secFetchSite && secFetchSite !== 'same-origin' && secFetchSite !== 'none') {
+        logger?.log(pc.red(`Rejecting ${c.req.path}: cross-origin browser request (Sec-Fetch-Site: ${secFetchSite})`))
+        return c.text('Forbidden - Cross-origin requests not allowed', 403)
       }
 
+      // Require application/json on POST to force CORS preflight as backup defense.
+      // A text/plain POST is a "simple request" that skips preflight entirely.
+      if (c.req.method === 'POST') {
+        const contentType = c.req.header('content-type') || ''
+        if (!contentType.includes('application/json')) {
+          logger?.log(pc.red(`Rejecting ${c.req.path}: Content-Type must be application/json, got: ${contentType}`))
+          return c.text('Content-Type must be application/json', 415)
+        }
+      }
+
+      // When token mode is enabled (remote/serve mode), require authentication.
+      if (token) {
+        const authHeader = c.req.header('authorization') || ''
+        const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
+        const url = new URL(c.req.url, 'http://localhost')
+        const queryToken = url.searchParams.get('token')
+        if (bearerToken !== token && queryToken !== token) {
+          logger?.log(pc.red(`Rejecting ${c.req.path}: invalid or missing token`))
+          return c.text('Unauthorized', 401)
+        }
+      }
+
+      return next()
+    }
+
+    app.use('/cli/*', privilegedRouteMiddleware)
+
+    app.post('/cli/execute', async (c) => {
+      try {
+        const body = (await c.req.json()) as { sessionId: string | number; code: string; timeout?: number }
+        const sessionId = normalizeSessionId(body.sessionId)
+        const { code, timeout = 10000 } = body
+
+        if (!sessionId || !code) {
+          return c.json({ error: 'sessionId and code are required' }, 400)
+        }
+
+        const manager = await getExecutorManager()
+        const existingExecutor = manager.getSession(sessionId)
+        if (!existingExecutor) {
+          return c.json(
+            { text: `Session ${sessionId} not found. Run 'playwriter session new' first.`, images: [], screenshots: [], isError: true },
+            404,
+          )
+        }
+        const result = await existingExecutor.execute(code, timeout)
+
+        return c.json(result)
+      } catch (error: any) {
+        logger?.error('Execute endpoint error:', error)
+        return c.json({ text: `Server error: ${error.message}`, images: [], screenshots: [], isError: true }, 500)
+      }
+    })
+
+    app.post('/cli/reset', async (c) => {
+      try {
+        const body = (await c.req.json()) as { sessionId: string | number }
+        const sessionId = normalizeSessionId(body.sessionId)
+
+        if (!sessionId) {
+          return c.json({ error: 'sessionId is required' }, 400)
+        }
+
+        const manager = await getExecutorManager()
+        const existingExecutor = manager.getSession(sessionId)
+        if (!existingExecutor) {
+          return c.json({ error: `Session ${sessionId} not found. Run 'playwriter session new' first.` }, 404)
+        }
+        const { page, context } = await existingExecutor.reset()
+
+        return c.json({
+          success: true,
+          pageUrl: page.url(),
+          pagesCount: context.pages().length,
+        })
+      } catch (error: any) {
+        logger?.error('Reset endpoint error:', error)
+        return c.json({ error: error.message }, 500)
+      }
+    })
+
+    app.get('/cli/sessions', async (c) => {
       const manager = await getExecutorManager()
-      const existingExecutor = manager.getSession(sessionId)
-      if (!existingExecutor) {
-        return c.json(
-          { text: `Session ${sessionId} not found. Run 'playwriter session new' first.`, images: [], screenshots: [], isError: true },
-          404,
-        )
+      return c.json({ sessions: manager.listSessions() })
+    })
+
+    app.get('/cli/session/suggest', (c) => {
+      return c.json({ next: nextSessionNumber })
+    })
+
+    app.post('/cli/session/new', async (c) => {
+      const body = (await c.req.json().catch(() => ({}))) as {
+        extensionId?: string | null
+        cwd?: string
+        /** Direct CDP WebSocket URL — bypasses extension, connects straight to Chrome */
+        cdpEndpoint?: string
+        /** Browser name from discovery (e.g. "Chrome", "Brave") */
+        browser?: string
+        /** Profile info from discovery */
+        profiles?: Array<{ name: string; email: string }>
       }
-      const result = await existingExecutor.execute(code, timeout)
+      const sessionId = String(nextSessionNumber++)
+      const cwd = body.cwd
 
-      return c.json(result)
-    } catch (error: any) {
-      logger?.error('Execute endpoint error:', error)
-      return c.json({ text: `Server error: ${error.message}`, images: [], screenshots: [], isError: true }, 500)
-    }
-  })
-
-  app.post('/cli/reset', async (c) => {
-    try {
-      const body = (await c.req.json()) as { sessionId: string | number }
-      const sessionId = normalizeSessionId(body.sessionId)
-
-      if (!sessionId) {
-        return c.json({ error: 'sessionId is required' }, 400)
+      // Direct CDP mode: skip extension lookup, pass direct WebSocket URL to executor
+      if (body.cdpEndpoint) {
+        if (!body.cdpEndpoint.startsWith('ws://') && !body.cdpEndpoint.startsWith('wss://')) {
+          return c.json({ error: `Invalid cdpEndpoint: must start with ws:// or wss:// (got: ${body.cdpEndpoint})` }, 400)
+        }
+        // Use first profile from discovery for session metadata (if available)
+        const firstProfile = body.profiles?.[0]
+        const manager = await getExecutorManager()
+        const executor = manager.getExecutor({
+          sessionId,
+          cwd,
+          cdpConfig: { directCdpUrl: appendSessionToWsUrl(body.cdpEndpoint, sessionId) },
+          sessionMetadata: {
+            extensionId: null,
+            browser: body.browser || null,
+            profile: firstProfile ? { email: firstProfile.email, id: firstProfile.name } : null,
+          },
+        })
+        const metadata = executor.getSessionMetadata()
+        return c.json({
+          id: sessionId,
+          mode: 'direct' as const,
+          extensionId: metadata.extensionId,
+          browser: metadata.browser,
+          profile: metadata.profile,
+        })
       }
 
-      const manager = await getExecutorManager()
-      const existingExecutor = manager.getSession(sessionId)
-      if (!existingExecutor) {
-        return c.json({ error: `Session ${sessionId} not found. Run 'playwriter session new' first.` }, 404)
+      // Extension mode (existing behavior)
+      const extensionId = body.extensionId || null
+      const allowDefault = !extensionId && store.getState().extensions.size === 1
+      const conn = getExtensionConnection(extensionId, { allowFallback: allowDefault })
+      if (!conn) {
+        const error = extensionId
+          ? `Extension not connected: ${extensionId}`
+          : 'Multiple extensions connected. Specify extensionId.'
+        return c.json({ error }, 404)
       }
-      const { page, context } = await existingExecutor.reset()
-
-      return c.json({
-        success: true,
-        pageUrl: page.url(),
-        pagesCount: context.pages().length,
-      })
-    } catch (error: any) {
-      logger?.error('Reset endpoint error:', error)
-      return c.json({ error: error.message }, 500)
-    }
-  })
-
-  app.get('/cli/sessions', async (c) => {
-    const manager = await getExecutorManager()
-    return c.json({ sessions: manager.listSessions() })
-  })
-
-  app.get('/cli/session/suggest', (c) => {
-    return c.json({ next: nextSessionNumber })
-  })
-
-  app.post('/cli/session/new', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as {
-      extensionId?: string | null
-      cwd?: string
-      /** Direct CDP WebSocket URL — bypasses extension, connects straight to Chrome */
-      cdpEndpoint?: string
-      /** Browser name from discovery (e.g. "Chrome", "Brave") */
-      browser?: string
-      /** Profile info from discovery */
-      profiles?: Array<{ name: string; email: string }>
-    }
-    const sessionId = String(nextSessionNumber++)
-    const cwd = body.cwd
-
-    // Direct CDP mode: skip extension lookup, pass direct WebSocket URL to executor
-    if (body.cdpEndpoint) {
-      if (!body.cdpEndpoint.startsWith('ws://') && !body.cdpEndpoint.startsWith('wss://')) {
-        return c.json({ error: `Invalid cdpEndpoint: must start with ws:// or wss:// (got: ${body.cdpEndpoint})` }, 400)
-      }
-      // Use first profile from discovery for session metadata (if available)
-      const firstProfile = body.profiles?.[0]
       const manager = await getExecutorManager()
       const executor = manager.getExecutor({
         sessionId,
         cwd,
-        cdpConfig: { directCdpUrl: appendSessionToWsUrl(body.cdpEndpoint, sessionId) },
         sessionMetadata: {
-          extensionId: null,
-          browser: body.browser || null,
-          profile: firstProfile ? { email: firstProfile.email, id: firstProfile.name } : null,
+          extensionId: conn.stableKey,
+          browser: conn.info.browser || null,
+          profile: null,
         },
       })
       const metadata = executor.getSessionMetadata()
       return c.json({
         id: sessionId,
-        mode: 'direct' as const,
+        mode: 'extension' as const,
         extensionId: metadata.extensionId,
         browser: metadata.browser,
         profile: metadata.profile,
       })
-    }
-
-    // Extension mode (existing behavior)
-    const extensionId = body.extensionId || null
-    const allowDefault = !extensionId && store.getState().extensions.size === 1
-    const conn = getExtensionConnection(extensionId, { allowFallback: allowDefault })
-    if (!conn) {
-      const error = extensionId
-        ? `Extension not connected: ${extensionId}`
-        : 'Multiple extensions connected. Specify extensionId.'
-      return c.json({ error }, 404)
-    }
-    const manager = await getExecutorManager()
-    const executor = manager.getExecutor({
-      sessionId,
-      cwd,
-      sessionMetadata: {
-        extensionId: conn.stableKey,
-        browser: conn.info.browser || null,
-        profile: null,
-      },
     })
-    const metadata = executor.getSessionMetadata()
-    return c.json({
-      id: sessionId,
-      mode: 'extension' as const,
-      extensionId: metadata.extensionId,
-      browser: metadata.browser,
-      profile: metadata.profile,
-    })
-  })
 
-  app.get('/cli/session/:id', async (c) => {
-    const sessionId = c.req.param('id')
-    const manager = await getExecutorManager()
-    const executor = manager.getSession(sessionId)
-    if (!executor) {
-      return c.json({ error: 'not found' }, 404)
-    }
-    return c.json(executor.getSessionInfo({ id: sessionId }))
-  })
-
-  app.post('/cli/session/delete', async (c) => {
-    try {
-      const body = (await c.req.json()) as { sessionId: string | number }
-      const sessionId = normalizeSessionId(body.sessionId)
-
-      if (!sessionId) {
-        return c.json({ error: 'sessionId is required' }, 400)
-      }
-
+    app.get('/cli/session/:id', async (c) => {
+      const sessionId = c.req.param('id')
       const manager = await getExecutorManager()
-      const deleted = manager.deleteExecutor(sessionId)
-
-      if (!deleted) {
-        return c.json({ error: `Session ${sessionId} not found` }, 404)
+      const executor = manager.getSession(sessionId)
+      if (!executor) {
+        return c.json({ error: 'not found' }, 404)
       }
-      return c.json({ success: true })
-    } catch (error: any) {
-      logger?.error('Delete session endpoint error:', error)
-      return c.json({ error: error.message }, 500)
-    }
-  })
+      return c.json(executor.getSessionInfo({ id: sessionId }))
+    })
+
+    app.post('/cli/session/delete', async (c) => {
+      try {
+        const body = (await c.req.json()) as { sessionId: string | number }
+        const sessionId = normalizeSessionId(body.sessionId)
+
+        if (!sessionId) {
+          return c.json({ error: 'sessionId is required' }, 400)
+        }
+
+        const manager = await getExecutorManager()
+        const deleted = manager.deleteExecutor(sessionId)
+
+        if (!deleted) {
+          return c.json({ error: `Session ${sessionId} not found` }, 404)
+        }
+        return c.json({ success: true })
+      } catch (error: any) {
+        logger?.error('Delete session endpoint error:', error)
+        return c.json({ error: error.message }, 500)
+      }
+    })
+  }
 
   const server = serve({ fetch: app.fetch, port, hostname: host })
   injectWebSocket(server)

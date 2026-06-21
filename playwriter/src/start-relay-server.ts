@@ -25,7 +25,7 @@ export async function startServer({
   host = '127.0.0.1',
   token,
 }: { port?: number; host?: string; token?: string } = {}) {
-  const server = await startPlayWriterCDPRelayServer({ port, host, token, logger })
+  const server = await startPlayWriterCDPRelayServer({ port, host, token, logger, enableCliRoutes: true })
 
   console.log('CDP Relay Server running. Press Ctrl+C to stop.')
   console.log('Logs are being written to:', logger.logFilePath)
