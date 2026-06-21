@@ -1,5 +1,12 @@
 export type BrowserAccessPolicy = {
-  mode: 'all' | 'allowList'
+  mode: 'ask' | 'deny' | 'all' | 'allowList'
+  allowedPatterns: string[]
+  profilePolicies?: BrowserAccessProfilePolicy[]
+}
+
+export type BrowserAccessProfilePolicy = {
+  profileId: string
+  mode: 'ask' | 'deny' | 'all' | 'allowList'
   allowedPatterns: string[]
 }
 
@@ -102,12 +109,21 @@ function doesPatternMatchUrl(pattern: string, urlString: string): boolean {
 export function doesBrowserAccessPolicyAllowUrl(
   policy: BrowserAccessPolicy | null | undefined,
   urlString: string,
+  profileId?: string | null,
 ): boolean {
-  if (!policy || policy.mode === 'all') {
+  const profilePolicy = profileId
+    ? policy?.profilePolicies?.find((entry) => entry.profileId === profileId)
+    : null
+  const resolvedPolicy = profilePolicy || policy
+
+  if (!resolvedPolicy || resolvedPolicy.mode === 'all') {
     return true
   }
+  if (resolvedPolicy.mode === 'ask' || resolvedPolicy.mode === 'deny') {
+    return false
+  }
 
-  return policy.allowedPatterns.some((pattern) => doesPatternMatchUrl(pattern, urlString))
+  return resolvedPolicy.allowedPatterns.some((pattern) => doesPatternMatchUrl(pattern, urlString))
 }
 
 export function formatBrowserAccessPolicyErrorMessage(params: {

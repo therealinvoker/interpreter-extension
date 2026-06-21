@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.108
+
+1. **Browser access policy now supports profile-specific rules** — the relay evaluates `profilePolicies` with the extension stable key, so Chrome profiles can have separate ask, deny, allow-all, or matching-page access behavior.
+
 ## 0.0.107
 
 1. **Relay status now includes read-only browser tab inventory** — `/extension/status` and `/extensions/status` report Chrome windows and tabs separately from Playwright-visible targets, including whether each tab is currently shared and which target/session it maps to when applicable.
