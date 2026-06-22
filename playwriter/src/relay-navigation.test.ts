@@ -248,6 +248,17 @@ describe('Relay Navigation Tests', () => {
         error: expect.stringContaining('Interpreter browser settings blocked this request'),
       })
 
+      const activateTabRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extension/activate-tab`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: blockedTab!.chromeTabId,
+        }),
+      })
+      expect(activateTabRes.status).toBe(200)
+      await expect(activateTabRes.json()).resolves.toMatchObject({ success: true })
+
       const claimTabRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extension/claim-tab`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -334,6 +345,17 @@ describe('Relay Navigation Tests', () => {
       })
       expect(pageElementsRes.status).toBe(200)
       await expect(pageElementsRes.json()).resolves.toMatchObject({ success: true })
+
+      const activateTabRes = await fetch(`http://127.0.0.1:${MATRIX_POLICY_TEST_PORT}/extension/activate-tab`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: readableTab!.chromeTabId,
+        }),
+      })
+      expect(activateTabRes.status).toBe(200)
+      await expect(activateTabRes.json()).resolves.toMatchObject({ success: true })
 
       for (const endpoint of ['page-trace', 'page-click', 'page-scroll', 'claim-tab']) {
         const body = endpoint === 'page-trace'

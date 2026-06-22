@@ -1357,18 +1357,6 @@ export async function startPlayWriterCDPRelayServer({
       if (!browserTab) {
         return c.json({ success: false, error: 'Browser tab not found' }, 404)
       }
-      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'action')) {
-        return c.json({
-          success: false,
-          error: formatBrowserAccessPolicyErrorMessage({
-            policy: getCurrentAccessPolicy(),
-            attemptedUrl: browserTab.url,
-            action: 'use',
-            currentUrl: browserTab.url,
-            permissionKind: 'action',
-          }),
-        }, 403)
-      }
 
       const result = await sendToExtension({
         extensionId: extension.id,

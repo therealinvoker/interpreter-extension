@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.119
+
+1. **Relay allows tab reveal without page action permission** — `/extension/activate-tab` can focus an observed Chrome tab for user review while content reads, writes, claims, and page actions remain controlled by browser policy.
+
 ## 0.0.118
 
 1. **Relay enforces browser read/write/action policy classes** — tab inventory and element inspection use read permission, type/select/navigation use write permission, and claim/click/scroll/trace/window-control paths use action permission.
