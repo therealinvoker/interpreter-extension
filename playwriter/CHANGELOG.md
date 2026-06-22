@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.112
+
+1. **Relay exposes page-local trace feedback** — `/extension/page-trace` draws a short-lived in-page browser control trace for a policy-allowed tab element or rectangle, and rejects stale element refs before drawing.
+
 ## 0.0.111
 
 1. **Relay exposes opt-in page element inventory** — `/extension/page-elements` returns bounded read-only element refs, bounds, frame metadata, and document revision for a policy-allowed observed Chrome tab without adding that data to default status polling.

@@ -171,6 +171,21 @@ describe('Relay Navigation Tests', () => {
         success: false,
         error: expect.stringContaining('Interpreter browser settings blocked this request'),
       })
+
+      const pageTraceRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extension/page-trace`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: blockedTab!.chromeTabId,
+          bounds: { x: 10, y: 10, width: 20, height: 20 },
+        }),
+      })
+      expect(pageTraceRes.status).toBe(403)
+      await expect(pageTraceRes.json()).resolves.toMatchObject({
+        success: false,
+        error: expect.stringContaining('Interpreter browser settings blocked this request'),
+      })
     } finally {
       await cleanupTestContext(noPolicyCtx)
       await server.close()
@@ -580,9 +595,10 @@ describe('Relay Navigation Tests', () => {
   it('should expose CDP discovery endpoints /json/version and /json/list', async () => {
     const browserContext = getBrowserContext()
     const serviceWorker = await getExtensionServiceWorker(browserContext)
+    const discoveryUrl = 'https://example.com/?test=cdp-discovery-endpoints'
 
     const page = await browserContext.newPage()
-    await page.goto('https://example.com')
+    await page.goto(discoveryUrl)
     await page.bringToFront()
 
     await serviceWorker.evaluate(async () => {
@@ -615,12 +631,12 @@ describe('Relay Navigation Tests', () => {
     expect(Array.isArray(listJson)).toBe(true)
     expect(listJson.length).toBeGreaterThan(0)
 
-    const examplePage = listJson.find((t) => t.url?.includes('example.com'))
+    const examplePage = listJson.find((t) => t.url?.includes(discoveryUrl))
     expect(examplePage).toBeDefined()
     expect(examplePage).toMatchObject({
       id: expect.any(String),
       type: 'page',
-      url: expect.stringContaining('example.com'),
+      url: discoveryUrl,
       webSocketDebuggerUrl: expect.stringContaining('ws://'),
     })
 
@@ -674,7 +690,7 @@ describe('Relay Navigation Tests', () => {
     const browserTabs = extensionsStatusJson.extensions.flatMap((extension) => {
       return (extension.browserTabs?.windows ?? []).flatMap((window) => window.tabs ?? [])
     })
-    const sharedBrowserTab = browserTabs.find((tab) => tab.url.includes('example.com') && !tab.url.includes('unshared-tab-inventory'))
+    const sharedBrowserTab = browserTabs.find((tab) => tab.url === discoveryUrl)
     const unsharedBrowserTab = browserTabs.find((tab) => tab.url.includes('unshared-tab-inventory'))
     expect(sharedBrowserTab).toMatchObject({
       chromeTabId: expect.any(Number),
@@ -771,6 +787,65 @@ describe('Relay Navigation Tests', () => {
         && element.bounds.width > 0
         && element.bounds.height > 0
     })).toBe(true)
+    const traceTarget = elementInventoryJson.frames[0].elements[0]
+    expect(traceTarget).toBeDefined()
+
+    const pageTraceRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-trace`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: extensionWithUnsharedTab!.stableKey || extensionWithUnsharedTab!.extensionId,
+        chromeTabId: sharedBrowserTab!.chromeTabId,
+        frameId: elementInventoryJson.frames[0].frameId,
+        refId: traceTarget!.refId,
+        durationMs: 3_000,
+      }),
+    })
+    expect(pageTraceRes.status).toBe(200)
+    await expect(pageTraceRes.json()).resolves.toMatchObject({
+      success: true,
+      chromeTabId: sharedBrowserTab!.chromeTabId,
+      frameId: elementInventoryJson.frames[0].frameId,
+      refId: traceTarget!.refId,
+      bounds: traceTarget!.bounds,
+    })
+    await page.waitForFunction(() => {
+      return Boolean(document.getElementById('interpreter-browser-control-trace'))
+    }, null, { timeout: 5000 })
+    const traceBox = await page.evaluate(() => {
+      const trace = document.getElementById('interpreter-browser-control-trace')
+      if (!trace) return null
+      const rect = trace.getBoundingClientRect()
+      return {
+        ariaHidden: trace.getAttribute('aria-hidden'),
+        pointerEvents: window.getComputedStyle(trace).pointerEvents,
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      }
+    })
+    expect(traceBox).toEqual({
+      ariaHidden: 'true',
+      pointerEvents: 'none',
+      ...traceTarget!.bounds,
+    })
+
+    const staleTraceRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-trace`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: extensionWithUnsharedTab!.stableKey || extensionWithUnsharedTab!.extensionId,
+        chromeTabId: sharedBrowserTab!.chromeTabId,
+        frameId: elementInventoryJson.frames[0].frameId,
+        refId: `${traceTarget!.refId}-stale`,
+      }),
+    })
+    expect(staleTraceRes.status).toBe(400)
+    await expect(staleTraceRes.json()).resolves.toMatchObject({
+      success: false,
+      error: 'refId is stale or not visible',
+    })
 
     await unsharedPage.close()
     await page.close()

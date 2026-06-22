@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.92
+
+### Changes
+
+- **Draw page-local browser control traces**: Interpreter can ask the private relay to show a short-lived in-page trace for a policy-allowed tab element or rectangle, with stale element refs rejected before drawing.
+
 ## 0.0.91
 
 ### Changes
