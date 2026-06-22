@@ -213,7 +213,7 @@ globalThis.ensurePage ??= async function ensurePage() {
     globalThis.context.pages()[0]
 
   if (!globalThis.page) {
-    throw new Error('No shared live browser page is available.')
+    throw new Error('No extension-accessible browser page is available.')
   }
   return globalThis.page
 }
@@ -238,18 +238,18 @@ Troubleshooting:
 
 - `Identifier has already been declared` → reuse `globalThis` state, do not redeclare top-level names
 - `X is not defined` → initialize it on `globalThis` or rerun the idempotent bootstrap
-- Bridge connected but no page → ask the user to share a live tab with Interpreter first
+- Bridge connected but no page → ask the user to make the target tab accessible to Interpreter first
 - Multiple sessions → ask the user which `stableKey` to use
 
 ## context variables
 
 - `state` - object persisted between calls **within your session**. Each session has its own isolated state. Use to store pages, data, listeners (e.g., `state.page = await context.newPage()`)
-- `page` - a default page (may be shared with other agents). Prefer creating your own page and storing it in `state` (see "working with pages")
+- `page` - a default live browser page. Prefer claiming or creating your own page and storing it in `state` (see "working with pages")
 - `context` - browser context, access all pages via `context.pages()`
 - `require` - load Node.js modules (e.g., `const fs = require('node:fs')`). ESM `import` is not available in the sandbox
 - Node.js globals: `setTimeout`, `setInterval`, `fetch`, `URL`, `Buffer`, `crypto`, etc.
 
-**Important:** `state` is **session-isolated** but pages are **shared** across all sessions. See "working with pages" for how to avoid interference.
+**Important:** `state` is **session-isolated** but browser pages are live user/browser state. See "working with pages" for how to avoid interference.
 
 ## rules
 
@@ -552,7 +552,7 @@ await state.page.locator('li').nth(3).click() // 4th item (0-indexed)
 
 ## working with pages
 
-**Pages are shared, state is not.** `context.pages()` returns all browser tabs with Interpreter Chrome Extension enabled — shared across all sessions. Multiple agents see the same tabs. If another agent navigates or closes a page you're using, you'll be affected. To avoid interference, **get your own page**.
+**Pages are live, state is not.** `context.pages()` returns browser tabs currently accessible through the Interpreter Chrome Extension in the connected profile. Multiple sessions can see and affect the same live tab if they choose it. If another session navigates or closes a page you're using, you'll be affected. To avoid interference, **get your own page**.
 
 **Get or create your page (first call):**
 

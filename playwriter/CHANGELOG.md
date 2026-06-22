@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.122
+
+1. **Browser skill removes shared-tab product wording** — agent instructions now describe extension-accessible live browser pages and claimed tabs instead of asking users to share tabs.
+
 ## 0.0.121
 
 1. **Relay carries explicit browser tab control state** — tab inventory can now report whether a listed Chrome tab is merely observable or already claimed for control without requiring app code to infer that from legacy shared-tab fields.
