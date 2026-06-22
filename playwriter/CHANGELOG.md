@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.121
+
+1. **Relay carries explicit browser tab control state** — tab inventory can now report whether a listed Chrome tab is merely observable or already claimed for control without requiring app code to infer that from legacy shared-tab fields.
+
 ## 0.0.120
 
 1. **Relay preserves viewport screen bounds for page element inventory** — `/extension/page-elements` now carries the extension-reported viewport screen bounds through to Interpreter so overlay selection can attach Chrome page refs to selected regions.

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.101
+
+### Changes
+
+- **Expose browser tab control state directly**: Tab inventory now reports explicit `observable` or `controllable` state for each listed Chrome tab while retaining legacy relay fields for older clients.
+
 ## 0.0.100
 
 ### Changes

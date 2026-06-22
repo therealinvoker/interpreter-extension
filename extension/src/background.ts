@@ -903,6 +903,8 @@ async function listBrowserTabs(): Promise<{
       title: string
       url: string
       status: string
+      controlState: 'observable' | 'controllable'
+      controlStateDetail?: string
       shared: boolean
       shareState?: string
       targetId?: string
@@ -925,6 +927,7 @@ async function listBrowserTabs(): Promise<{
         })
         .map((tab) => {
           const shared = sharedTabs.get(tab.id)
+          const controlState = shared ? 'controllable' : 'observable'
           return {
             chromeTabId: tab.id,
             windowId: tab.windowId,
@@ -935,6 +938,8 @@ async function listBrowserTabs(): Promise<{
             title: tab.title ?? '',
             url: tab.url ?? '',
             status: tab.status ?? 'unknown',
+            controlState,
+            controlStateDetail: shared?.state,
             shared: Boolean(shared),
             shareState: shared?.state,
             targetId: shared?.targetId,

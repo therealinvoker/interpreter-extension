@@ -299,6 +299,8 @@ export async function startPlayWriterCDPRelayServer({
         title: string
         url: string
         status: string
+        controlState?: 'observable' | 'controllable'
+        controlStateDetail?: string
         shared: boolean
         shareState?: string
         targetId?: string

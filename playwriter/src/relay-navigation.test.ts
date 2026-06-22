@@ -133,7 +133,7 @@ describe('Relay Navigation Tests', () => {
       const statusJson = await statusRes.json() as {
         activeTargets: number
         targets: Array<{ url: string }>
-        browserTabs: { windows: Array<{ tabs: Array<{ url: string; shared: boolean }> }> }
+        browserTabs: { windows: Array<{ tabs: Array<{ url: string; controlState: 'observable' | 'controllable'; shared: boolean }> }> }
       }
       const inventoryTabs = statusJson.browserTabs.windows.flatMap((window) => window.tabs)
       expect(statusJson.activeTargets).toBe(0)
@@ -1557,6 +1557,8 @@ describe('Relay Navigation Tests', () => {
               active: boolean
               title: string
               url: string
+              controlState: 'observable' | 'controllable'
+              controlStateDetail?: string
               shared: boolean
               targetId?: string
             }>
@@ -1582,12 +1584,15 @@ describe('Relay Navigation Tests', () => {
       chromeTabId: expect.any(Number),
       windowId: expect.any(Number),
       shared: true,
+      controlState: 'controllable',
+      controlStateDetail: expect.any(String),
       targetId: expect.any(String),
     })
     expect(unsharedBrowserTab).toMatchObject({
       chromeTabId: expect.any(Number),
       windowId: expect.any(Number),
       shared: false,
+      controlState: 'observable',
     })
 
     const extensionWithUnsharedTab = extensionsStatusJson.extensions.find((extension) => {
@@ -1618,6 +1623,7 @@ describe('Relay Navigation Tests', () => {
     expect(activatedTabs.find((tab) => tab.chromeTabId === unsharedBrowserTab!.chromeTabId)).toMatchObject({
       active: true,
       shared: false,
+      controlState: 'observable',
     })
 
     const claimTabRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/claim-tab`, {
@@ -1650,6 +1656,8 @@ describe('Relay Navigation Tests', () => {
     })
     expect(claimedTabs.find((tab) => tab.chromeTabId === unsharedBrowserTab!.chromeTabId)).toMatchObject({
       shared: true,
+      controlState: 'controllable',
+      controlStateDetail: expect.any(String),
       targetId: claimTabJson.targetId,
     })
 
