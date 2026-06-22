@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.113
+
+1. **Relay exposes page element click feedback** — `/extension/page-click` clicks one policy-allowed browser element ref, draws the same in-page trace feedback, and rejects stale refs before acting.
+
 ## 0.0.112
 
 1. **Relay exposes page-local trace feedback** — `/extension/page-trace` draws a short-lived in-page browser control trace for a policy-allowed tab element or rectangle, and rejects stale element refs before drawing.

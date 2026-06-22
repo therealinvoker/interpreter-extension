@@ -186,8 +186,150 @@ describe('Relay Navigation Tests', () => {
         success: false,
         error: expect.stringContaining('Interpreter browser settings blocked this request'),
       })
+
+      const pageClickRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extension/page-click`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: blockedTab!.chromeTabId,
+          refId: 'browser-element:blocked:0',
+        }),
+      })
+      expect(pageClickRes.status).toBe(403)
+      await expect(pageClickRes.json()).resolves.toMatchObject({
+        success: false,
+        error: expect.stringContaining('Interpreter browser settings blocked this request'),
+      })
     } finally {
       await cleanupTestContext(noPolicyCtx)
+      await server.close()
+    }
+  }, 60000)
+
+  it('should click page element refs through the extension relay', async () => {
+    const browserContext = getBrowserContext()
+    const serviceWorker = await getExtensionServiceWorker(browserContext)
+    const server = await createSimpleServer({
+      routes: {
+        '/click-target': `<!doctype html>
+          <html>
+            <body>
+              <button id="count" aria-label="Increment count">Clicked 0</button>
+              <script>
+                let count = 0;
+                document.getElementById('count').addEventListener('click', () => {
+                  count += 1;
+                  document.getElementById('count').textContent = 'Clicked ' + count;
+                  document.body.setAttribute('data-click-count', String(count));
+                });
+              </script>
+            </body>
+          </html>`,
+      },
+    })
+    const page = await browserContext.newPage()
+
+    try {
+      await page.goto(`${server.baseUrl}/click-target`, { waitUntil: 'domcontentloaded' })
+      await page.bringToFront()
+
+      await serviceWorker.evaluate(async () => {
+        await globalThis.toggleExtensionForActiveTab()
+      })
+
+      const extensionsStatusRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extensions/status`)
+      expect(extensionsStatusRes.status).toBe(200)
+      const extensionsStatusJson = await extensionsStatusRes.json() as {
+        extensions: Array<{
+          extensionId: string
+          stableKey?: string
+          browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string }> }> }
+        }>
+      }
+      const extension = extensionsStatusJson.extensions.find((candidate) => {
+        return (candidate.browserTabs?.windows ?? []).some((window) => {
+          return (window.tabs ?? []).some((tab) => tab.url === `${server.baseUrl}/click-target`)
+        })
+      })
+      const browserTab = extension?.browserTabs?.windows
+        ?.flatMap((window) => window.tabs ?? [])
+        .find((tab) => tab.url === `${server.baseUrl}/click-target`)
+      expect(extension).toBeDefined()
+      expect(browserTab).toBeDefined()
+
+      const elementInventoryRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-elements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          maxElements: 10,
+        }),
+      })
+      expect(elementInventoryRes.status).toBe(200)
+      const elementInventoryJson = await elementInventoryRes.json() as {
+        success: boolean
+        frames: Array<{
+          frameId: number
+          elements: Array<{
+            refId: string
+            name: string
+            text: string
+            bounds: { x: number; y: number; width: number; height: number }
+          }>
+        }>
+      }
+      expect(elementInventoryJson.success).toBe(true)
+      const frame = elementInventoryJson.frames[0]
+      const button = frame.elements.find((element) => {
+        return element.name === 'Increment count' && element.text === 'Clicked 0'
+      })
+      expect(button).toBeDefined()
+
+      const clickRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-click`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          frameId: frame.frameId,
+          refId: button!.refId,
+          durationMs: 3_000,
+        }),
+      })
+      expect(clickRes.status).toBe(200)
+      await expect(clickRes.json()).resolves.toMatchObject({
+        success: true,
+        chromeTabId: browserTab!.chromeTabId,
+        frameId: frame.frameId,
+        refId: button!.refId,
+        bounds: button!.bounds,
+      })
+      await expect.poll(() => {
+        return page.locator('#count').textContent()
+      }).toBe('Clicked 1')
+      await page.waitForFunction(() => {
+        return Boolean(document.getElementById('interpreter-browser-control-trace'))
+      }, null, { timeout: 5000 })
+
+      const staleClickRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-click`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          frameId: frame.frameId,
+          refId: button!.refId,
+        }),
+      })
+      expect(staleClickRes.status).toBe(400)
+      await expect(staleClickRes.json()).resolves.toMatchObject({
+        success: false,
+        error: 'refId is stale or not visible',
+      })
+    } finally {
+      await page.close()
       await server.close()
     }
   }, 60000)

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.93
+
+### Changes
+
+- **Click bounded page element refs through the local relay**: Interpreter can ask the private relay to click a policy-allowed page element ref, draw the same short-lived in-page feedback, and reject stale refs before acting.
+
 ## 0.0.92
 
 ### Changes
