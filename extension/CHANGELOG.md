@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.100
+
+### Changes
+
+- **Expose viewport screen bounds with page element inventory**: The private extension now reports the observed page viewport's screen bounds so Interpreter can map Chrome page element refs into overlay selection coordinates.
+
 ## 0.0.99
 
 ### Changes

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.120
+
+1. **Relay preserves viewport screen bounds for page element inventory** — `/extension/page-elements` now carries the extension-reported viewport screen bounds through to Interpreter so overlay selection can attach Chrome page refs to selected regions.
+
 ## 0.0.119
 
 1. **Relay allows tab reveal without page action permission** — `/extension/activate-tab` can focus an observed Chrome tab for user review while content reads, writes, claims, and page actions remain controlled by browser policy.

@@ -1044,6 +1044,12 @@ type PageElementInventoryResult =
           scrollX: number
           scrollY: number
           devicePixelRatio: number
+          screenBounds: {
+            x: number
+            y: number
+            width: number
+            height: number
+          } | null
         }
         elements: Array<{
           refId: string
@@ -1287,6 +1293,19 @@ async function getPageElementInventory(params: {
           'a, button, input, textarea, select, summary, [role], [tabindex], [contenteditable="true"], [onclick]',
         ))
         const elements: InventoryElement[] = []
+        const browserChromeX = Math.max(0, window.outerWidth - window.innerWidth)
+        const browserChromeY = Math.max(0, window.outerHeight - window.innerHeight)
+        const viewportScreenBounds = Number.isFinite(window.screenX)
+          && Number.isFinite(window.screenY)
+          && window.innerWidth > 0
+          && window.innerHeight > 0
+          ? {
+              x: Math.round(window.screenX + browserChromeX / 2),
+              y: Math.round(window.screenY + browserChromeY - browserChromeX / 2),
+              width: Math.round(window.innerWidth),
+              height: Math.round(window.innerHeight),
+            }
+          : null
 
         for (const element of candidates) {
           if (elements.length >= maxElementsPerFrame) break
@@ -1351,6 +1370,7 @@ async function getPageElementInventory(params: {
             scrollX: window.scrollX,
             scrollY: window.scrollY,
             devicePixelRatio: window.devicePixelRatio,
+            screenBounds: viewportScreenBounds,
           },
           elements,
         }
@@ -1371,6 +1391,7 @@ async function getPageElementInventory(params: {
           scrollX: 0,
           scrollY: 0,
           devicePixelRatio: 1,
+          screenBounds: null,
         },
         elements: result.result?.elements ?? [],
       })),

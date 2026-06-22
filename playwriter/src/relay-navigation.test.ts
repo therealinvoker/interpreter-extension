@@ -1611,6 +1611,7 @@ describe('Relay Navigation Tests', () => {
           scrollX: number
           scrollY: number
           devicePixelRatio: number
+          screenBounds: { x: number; y: number; width: number; height: number } | null
         }
         elements: Array<{
           refId: string
@@ -1632,6 +1633,12 @@ describe('Relay Navigation Tests', () => {
         scrollX: expect.any(Number),
         scrollY: expect.any(Number),
         devicePixelRatio: expect.any(Number),
+        screenBounds: expect.objectContaining({
+          x: expect.any(Number),
+          y: expect.any(Number),
+          width: expect.any(Number),
+          height: expect.any(Number),
+        }),
       },
     })
     expect(elementInventoryJson.frames[0].elements.length).toBeLessThanOrEqual(10)

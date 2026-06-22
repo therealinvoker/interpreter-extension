@@ -321,6 +321,12 @@ export async function startPlayWriterCDPRelayServer({
         scrollX: number
         scrollY: number
         devicePixelRatio: number
+        screenBounds?: {
+          x: number
+          y: number
+          width: number
+          height: number
+        } | null
       }
       elements: Array<{
         refId: string
