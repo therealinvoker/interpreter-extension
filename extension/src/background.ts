@@ -866,7 +866,7 @@ async function arrangeWindowForTarget(params: {
 
   const found = getTabByTargetId(params.targetId)
   if (!found) {
-    return { success: false, error: `No shared tab found for target ${params.targetId}` }
+    return { success: false, error: `No observed tab found for target ${params.targetId}` }
   }
 
   const { bounds } = params
@@ -882,7 +882,7 @@ async function arrangeWindowForTarget(params: {
   try {
     const tab = await chrome.tabs.get(found.tabId)
     if (tab.windowId === undefined) {
-      return { success: false, error: 'Shared tab has no owning window' }
+      return { success: false, error: 'Observed tab has no owning window' }
     }
 
     await chrome.windows.update(tab.windowId, { state: 'normal', focused: true })

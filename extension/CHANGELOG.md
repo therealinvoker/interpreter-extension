@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.99
+
+### Changes
+
+- **Use observed-tab wording in window arrangement errors**: Replaced stale shared-tab terminology in extension-side browser window arrangement failures.
+
 ## 0.0.98
 
 ### Changes
