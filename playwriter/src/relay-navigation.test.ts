@@ -645,6 +645,31 @@ describe('Relay Navigation Tests', () => {
       expect(extension).toBeDefined()
       expect(browserTab).toBeDefined()
 
+      const traceRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-trace`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          frameId: 0,
+          bounds: { x: 20, y: 20, width: 120, height: 40 },
+          durationMs: 5_000,
+        }),
+      })
+      expect(traceRes.status).toBe(200)
+      await expect(traceRes.json()).resolves.toMatchObject({
+        success: true,
+        chromeTabId: browserTab!.chromeTabId,
+        frameId: 0,
+        bounds: { x: 20, y: 20, width: 120, height: 40 },
+      })
+      const traceBeforeScroll = await page.evaluate(() => {
+        const trace = document.getElementById('interpreter-browser-control-trace')
+        const rect = trace?.getBoundingClientRect()
+        return rect ? { x: Math.round(rect.x), y: Math.round(rect.y) } : null
+      })
+      expect(traceBeforeScroll).toEqual({ x: 20, y: 20 })
+
       const scrollRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-scroll`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -677,6 +702,12 @@ describe('Relay Navigation Tests', () => {
         scrollCount: '1',
         dataScrollY: '700',
       })
+      const traceAfterScroll = await page.evaluate(() => {
+        const trace = document.getElementById('interpreter-browser-control-trace')
+        const rect = trace?.getBoundingClientRect()
+        return rect ? { x: Math.round(rect.x), y: Math.round(rect.y) } : null
+      })
+      expect(traceAfterScroll).toEqual({ x: 20, y: -680 })
     } finally {
       await page.close()
       await server.close()
