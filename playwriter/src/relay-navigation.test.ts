@@ -218,6 +218,22 @@ describe('Relay Navigation Tests', () => {
         error: expect.stringContaining('Interpreter browser settings blocked this request'),
       })
 
+      const pageSelectRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extension/page-select`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: blockedTab!.chromeTabId,
+          refId: 'browser-element:blocked:0',
+          value: 'blocked',
+        }),
+      })
+      expect(pageSelectRes.status).toBe(403)
+      await expect(pageSelectRes.json()).resolves.toMatchObject({
+        success: false,
+        error: expect.stringContaining('Interpreter browser settings blocked this request'),
+      })
+
       const pageScrollRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extension/page-scroll`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -389,6 +405,170 @@ describe('Relay Navigation Tests', () => {
       })
       expect(staleTypeRes.status).toBe(400)
       await expect(staleTypeRes.json()).resolves.toMatchObject({
+        success: false,
+        error: 'refId is stale or not visible',
+      })
+    } finally {
+      await page.close()
+      await server.close()
+    }
+  }, 60000)
+
+  it('should select page element options through the extension relay', async () => {
+    const browserContext = getBrowserContext()
+    const serviceWorker = await getExtensionServiceWorker(browserContext)
+    const server = await createSimpleServer({
+      routes: {
+        '/select-target': `<!doctype html>
+          <html>
+            <body>
+              <label for="team">Team</label>
+              <select id="team" aria-label="Team">
+                <option value="">Choose one</option>
+                <option value="operations">Operations</option>
+                <option value="support">Support</option>
+              </select>
+              <div id="events">input:0 change:0</div>
+              <script>
+                let inputCount = 0;
+                let changeCount = 0;
+                const teamSelect = document.getElementById('team');
+                const events = document.getElementById('events');
+                function render() {
+                  document.body.setAttribute('data-input-count', String(inputCount));
+                  document.body.setAttribute('data-change-count', String(changeCount));
+                  events.textContent = 'input:' + inputCount + ' change:' + changeCount;
+                }
+                teamSelect.addEventListener('input', () => {
+                  inputCount += 1;
+                  document.body.setAttribute('data-last-input-value', teamSelect.value);
+                  render();
+                });
+                teamSelect.addEventListener('change', () => {
+                  changeCount += 1;
+                  document.body.setAttribute('data-last-change-value', teamSelect.value);
+                  render();
+                });
+                render();
+              </script>
+            </body>
+          </html>`,
+      },
+    })
+    const page = await browserContext.newPage()
+
+    try {
+      await page.goto(`${server.baseUrl}/select-target`, { waitUntil: 'domcontentloaded' })
+      await page.bringToFront()
+
+      await serviceWorker.evaluate(async () => {
+        await globalThis.toggleExtensionForActiveTab()
+      })
+
+      const extensionsStatusRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extensions/status`)
+      expect(extensionsStatusRes.status).toBe(200)
+      const extensionsStatusJson = await extensionsStatusRes.json() as {
+        extensions: Array<{
+          extensionId: string
+          stableKey?: string
+          browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string }> }> }
+        }>
+      }
+      const extension = extensionsStatusJson.extensions.find((candidate) => {
+        return (candidate.browserTabs?.windows ?? []).some((window) => {
+          return (window.tabs ?? []).some((tab) => tab.url === `${server.baseUrl}/select-target`)
+        })
+      })
+      const browserTab = extension?.browserTabs?.windows
+        ?.flatMap((window) => window.tabs ?? [])
+        .find((tab) => tab.url === `${server.baseUrl}/select-target`)
+      expect(extension).toBeDefined()
+      expect(browserTab).toBeDefined()
+
+      const elementInventoryRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-elements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          maxElements: 10,
+        }),
+      })
+      expect(elementInventoryRes.status).toBe(200)
+      const elementInventoryJson = await elementInventoryRes.json() as {
+        success: boolean
+        frames: Array<{
+          frameId: number
+          elements: Array<{
+            refId: string
+            name: string
+            value: string | null
+            tagName: string
+            bounds: { x: number; y: number; width: number; height: number }
+          }>
+        }>
+      }
+      expect(elementInventoryJson.success).toBe(true)
+      const frame = elementInventoryJson.frames[0]
+      const select = frame.elements.find((element) => {
+        return element.name === 'Team' && element.tagName === 'select'
+      })
+      expect(select).toBeDefined()
+
+      const selectRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-select`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          frameId: frame.frameId,
+          refId: select!.refId,
+          value: 'operations',
+          durationMs: 3_000,
+        }),
+      })
+      expect(selectRes.status).toBe(200)
+      await expect(selectRes.json()).resolves.toMatchObject({
+        success: true,
+        chromeTabId: browserTab!.chromeTabId,
+        frameId: frame.frameId,
+        refId: select!.refId,
+        value: 'operations',
+        bounds: select!.bounds,
+      })
+      await expect.poll(() => {
+        return page.locator('#team').inputValue()
+      }).toBe('operations')
+      await expect.poll(async () => {
+        return page.evaluate(() => ({
+          inputCount: document.body.getAttribute('data-input-count'),
+          changeCount: document.body.getAttribute('data-change-count'),
+          lastInputValue: document.body.getAttribute('data-last-input-value'),
+          lastChangeValue: document.body.getAttribute('data-last-change-value'),
+        }))
+      }).toEqual({
+        inputCount: '1',
+        changeCount: '1',
+        lastInputValue: 'operations',
+        lastChangeValue: 'operations',
+      })
+      await page.waitForFunction(() => {
+        return Boolean(document.getElementById('interpreter-browser-control-trace'))
+      }, null, { timeout: 5000 })
+
+      const staleSelectRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-select`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          frameId: frame.frameId,
+          refId: select!.refId,
+          value: 'support',
+        }),
+      })
+      expect(staleSelectRes.status).toBe(400)
+      await expect(staleSelectRes.json()).resolves.toMatchObject({
         success: false,
         error: 'refId is stale or not visible',
       })

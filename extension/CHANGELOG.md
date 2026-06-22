@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.96
+
+### Changes
+
+- **Select bounded page element refs through the local relay**: Interpreter can ask the private relay to choose one exact option value on a policy-allowed select element, draw in-page feedback, and reject stale refs before acting.
+
 ## 0.0.95
 
 ### Changes

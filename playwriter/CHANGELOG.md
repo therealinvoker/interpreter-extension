@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.116
+
+1. **Relay exposes page element select input** — `/extension/page-select` selects one exact option value on a policy-allowed browser select element, draws in-page feedback, and rejects stale refs before acting.
+
 ## 0.0.115
 
 1. **Relay exposes page frame scrolling** — `/extension/page-scroll` scrolls one policy-allowed browser frame and returns the resulting viewport position.
