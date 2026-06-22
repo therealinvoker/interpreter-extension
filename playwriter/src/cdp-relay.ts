@@ -373,6 +373,21 @@ export async function startPlayWriterCDPRelayServer({
     }
   }
 
+  type PageTypeResult = {
+    success: boolean
+    error?: string
+    chromeTabId?: number
+    frameId?: number
+    refId?: string
+    value?: string
+    bounds?: {
+      x: number
+      y: number
+      width: number
+      height: number
+    }
+  }
+
   async function getBrowserTabInventory(extensionId: string): Promise<BrowserTabInventory> {
     try {
       const result = await sendToExtension({
@@ -1476,6 +1491,84 @@ export async function startPlayWriterCDPRelayServer({
       })
     } catch (error: any) {
       logger?.error('Page click endpoint error:', error)
+      return c.json({ success: false, error: error.message || String(error) }, 500)
+    }
+  })
+
+  app.post('/extension/page-type', async (c) => {
+    try {
+      const body = (await c.req.json()) as {
+        extensionId?: string
+        chromeTabId?: number
+        frameId?: number
+        refId?: string
+        text?: string
+        durationMs?: number
+      }
+      const { extensionId, chromeTabId, frameId, refId, text, durationMs } = body
+      if (typeof chromeTabId !== 'number' || !Number.isInteger(chromeTabId) || chromeTabId < 1) {
+        return c.json({ success: false, error: 'chromeTabId is required' }, 400)
+      }
+      if (frameId !== undefined && (!Number.isInteger(frameId) || frameId < 0)) {
+        return c.json({ success: false, error: 'frameId must be a non-negative integer' }, 400)
+      }
+      if (typeof refId !== 'string' || refId.trim().length === 0) {
+        return c.json({ success: false, error: 'refId is required' }, 400)
+      }
+      if (typeof text !== 'string') {
+        return c.json({ success: false, error: 'text is required' }, 400)
+      }
+      if (durationMs !== undefined && (!Number.isInteger(durationMs) || durationMs < 100 || durationMs > 10_000)) {
+        return c.json({ success: false, error: 'durationMs must be an integer from 100 to 10000' }, 400)
+      }
+
+      const extension = getExtensionConnection(extensionId)
+      if (!extension) {
+        return c.json({ success: false, error: 'Extension not connected' }, 400)
+      }
+      const browserTabs = await getBrowserTabInventory(extension.id)
+      const browserTab = browserTabs.windows
+        .flatMap((window) => window.tabs)
+        .find((tab) => tab.chromeTabId === chromeTabId)
+      if (!browserTab) {
+        return c.json({ success: false, error: 'Browser tab not found' }, 404)
+      }
+      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey)) {
+        return c.json({
+          success: false,
+          error: formatBrowserAccessPolicyErrorMessage({
+            policy: getCurrentAccessPolicy(),
+            attemptedUrl: browserTab.url,
+            action: 'use',
+            currentUrl: browserTab.url,
+          }),
+        }, 403)
+      }
+
+      const result = await sendToExtension({
+        extensionId: extension.id,
+        method: 'typePageElement',
+        params: { chromeTabId, frameId, refId, text, durationMs },
+        timeout: 5_000,
+      }) as PageTypeResult
+
+      if (result.success !== true) {
+        return c.json({
+          success: false,
+          error: result.error || 'Page type failed',
+        }, 400)
+      }
+
+      return c.json({
+        success: true,
+        chromeTabId: result.chromeTabId ?? chromeTabId,
+        frameId: result.frameId ?? frameId ?? 0,
+        refId: result.refId ?? refId,
+        value: result.value ?? text,
+        bounds: result.bounds,
+      })
+    } catch (error: any) {
+      logger?.error('Page type endpoint error:', error)
       return c.json({ success: false, error: error.message || String(error) }, 500)
     }
   })

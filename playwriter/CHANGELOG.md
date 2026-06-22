@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.114
+
+1. **Relay exposes page element text input** — `/extension/page-type` replaces one policy-allowed editable browser element value, draws in-page feedback, and rejects stale refs before acting.
+
 ## 0.0.113
 
 1. **Relay exposes page element click feedback** — `/extension/page-click` clicks one policy-allowed browser element ref, draws the same in-page trace feedback, and rejects stale refs before acting.

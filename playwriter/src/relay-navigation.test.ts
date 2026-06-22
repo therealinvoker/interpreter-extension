@@ -201,8 +201,184 @@ describe('Relay Navigation Tests', () => {
         success: false,
         error: expect.stringContaining('Interpreter browser settings blocked this request'),
       })
+
+      const pageTypeRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extension/page-type`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: blockedTab!.chromeTabId,
+          refId: 'browser-element:blocked:0',
+          text: 'blocked',
+        }),
+      })
+      expect(pageTypeRes.status).toBe(403)
+      await expect(pageTypeRes.json()).resolves.toMatchObject({
+        success: false,
+        error: expect.stringContaining('Interpreter browser settings blocked this request'),
+      })
     } finally {
       await cleanupTestContext(noPolicyCtx)
+      await server.close()
+    }
+  }, 60000)
+
+  it('should type into editable page element refs through the extension relay', async () => {
+    const browserContext = getBrowserContext()
+    const serviceWorker = await getExtensionServiceWorker(browserContext)
+    const server = await createSimpleServer({
+      routes: {
+        '/type-target': `<!doctype html>
+          <html>
+            <body>
+              <label for="name">Name</label>
+              <input id="name" aria-label="Full name" value="">
+              <div id="events">input:0 change:0</div>
+              <script>
+                let inputCount = 0;
+                let changeCount = 0;
+                const nameInput = document.getElementById('name');
+                const events = document.getElementById('events');
+                function render() {
+                  document.body.setAttribute('data-input-count', String(inputCount));
+                  document.body.setAttribute('data-change-count', String(changeCount));
+                  events.textContent = 'input:' + inputCount + ' change:' + changeCount;
+                }
+                nameInput.addEventListener('input', () => {
+                  inputCount += 1;
+                  document.body.setAttribute('data-last-input-value', nameInput.value);
+                  render();
+                });
+                nameInput.addEventListener('change', () => {
+                  changeCount += 1;
+                  document.body.setAttribute('data-last-change-value', nameInput.value);
+                  render();
+                });
+                render();
+              </script>
+            </body>
+          </html>`,
+      },
+    })
+    const page = await browserContext.newPage()
+
+    try {
+      await page.goto(`${server.baseUrl}/type-target`, { waitUntil: 'domcontentloaded' })
+      await page.bringToFront()
+
+      await serviceWorker.evaluate(async () => {
+        await globalThis.toggleExtensionForActiveTab()
+      })
+
+      const extensionsStatusRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extensions/status`)
+      expect(extensionsStatusRes.status).toBe(200)
+      const extensionsStatusJson = await extensionsStatusRes.json() as {
+        extensions: Array<{
+          extensionId: string
+          stableKey?: string
+          browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string }> }> }
+        }>
+      }
+      const extension = extensionsStatusJson.extensions.find((candidate) => {
+        return (candidate.browserTabs?.windows ?? []).some((window) => {
+          return (window.tabs ?? []).some((tab) => tab.url === `${server.baseUrl}/type-target`)
+        })
+      })
+      const browserTab = extension?.browserTabs?.windows
+        ?.flatMap((window) => window.tabs ?? [])
+        .find((tab) => tab.url === `${server.baseUrl}/type-target`)
+      expect(extension).toBeDefined()
+      expect(browserTab).toBeDefined()
+
+      const elementInventoryRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-elements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          maxElements: 10,
+        }),
+      })
+      expect(elementInventoryRes.status).toBe(200)
+      const elementInventoryJson = await elementInventoryRes.json() as {
+        success: boolean
+        frames: Array<{
+          frameId: number
+          elements: Array<{
+            refId: string
+            name: string
+            value: string | null
+            editable: boolean
+            bounds: { x: number; y: number; width: number; height: number }
+          }>
+        }>
+      }
+      expect(elementInventoryJson.success).toBe(true)
+      const frame = elementInventoryJson.frames[0]
+      const input = frame.elements.find((element) => {
+        return element.name === 'Full name' && element.editable === true
+      })
+      expect(input).toBeDefined()
+
+      const typeRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-type`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          frameId: frame.frameId,
+          refId: input!.refId,
+          text: 'Ada Lovelace',
+          durationMs: 3_000,
+        }),
+      })
+      expect(typeRes.status).toBe(200)
+      await expect(typeRes.json()).resolves.toMatchObject({
+        success: true,
+        chromeTabId: browserTab!.chromeTabId,
+        frameId: frame.frameId,
+        refId: input!.refId,
+        value: 'Ada Lovelace',
+        bounds: input!.bounds,
+      })
+      await expect.poll(() => {
+        return page.locator('#name').inputValue()
+      }).toBe('Ada Lovelace')
+      await expect.poll(async () => {
+        return page.evaluate(() => ({
+          inputCount: document.body.getAttribute('data-input-count'),
+          changeCount: document.body.getAttribute('data-change-count'),
+          lastInputValue: document.body.getAttribute('data-last-input-value'),
+          lastChangeValue: document.body.getAttribute('data-last-change-value'),
+        }))
+      }).toEqual({
+        inputCount: '1',
+        changeCount: '1',
+        lastInputValue: 'Ada Lovelace',
+        lastChangeValue: 'Ada Lovelace',
+      })
+      await page.waitForFunction(() => {
+        return Boolean(document.getElementById('interpreter-browser-control-trace'))
+      }, null, { timeout: 5000 })
+
+      const staleTypeRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-type`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          frameId: frame.frameId,
+          refId: input!.refId,
+          text: 'Grace Hopper',
+        }),
+      })
+      expect(staleTypeRes.status).toBe(400)
+      await expect(staleTypeRes.json()).resolves.toMatchObject({
+        success: false,
+        error: 'refId is stale or not visible',
+      })
+    } finally {
+      await page.close()
       await server.close()
     }
   }, 60000)

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.94
+
+### Changes
+
+- **Type into bounded page element refs through the local relay**: Interpreter can ask the private relay to replace one policy-allowed editable page element value, draw in-page feedback, and reject stale refs before acting.
+
 ## 0.0.93
 
 ### Changes
