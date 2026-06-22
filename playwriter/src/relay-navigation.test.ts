@@ -563,6 +563,81 @@ describe('Relay Navigation Tests', () => {
     }
   }, 60000)
 
+  it('should expose selected page text through page element inventory', async () => {
+    const browserContext = getBrowserContext()
+    const serviceWorker = await getExtensionServiceWorker(browserContext)
+    const server = await createSimpleServer({
+      routes: {
+        '/selection-target': `<!doctype html>
+          <html>
+            <body>
+              <p id="source">Alpha selected browser text omega</p>
+              <button>Keep inventory non-empty</button>
+            </body>
+          </html>`,
+      },
+    })
+    const page = await browserContext.newPage()
+
+    try {
+      await page.goto(`${server.baseUrl}/selection-target`, { waitUntil: 'domcontentloaded' })
+      await page.bringToFront()
+      await page.evaluate(() => {
+        const source = document.getElementById('source')
+        if (!source) throw new Error('source missing')
+        const range = document.createRange()
+        range.selectNodeContents(source)
+        const selection = window.getSelection()
+        selection?.removeAllRanges()
+        selection?.addRange(range)
+      })
+
+      await serviceWorker.evaluate(async () => {
+        await globalThis.toggleExtensionForActiveTab()
+      })
+
+      const extensionsStatusRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extensions/status`)
+      expect(extensionsStatusRes.status).toBe(200)
+      const extensionsStatusJson = await extensionsStatusRes.json() as {
+        extensions: Array<{
+          extensionId: string
+          stableKey?: string
+          browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string }> }> }
+        }>
+      }
+      const extension = extensionsStatusJson.extensions.find((candidate) => {
+        return (candidate.browserTabs?.windows ?? []).some((window) => {
+          return (window.tabs ?? []).some((tab) => tab.url === `${server.baseUrl}/selection-target`)
+        })
+      })
+      const browserTab = extension?.browserTabs?.windows
+        ?.flatMap((window) => window.tabs ?? [])
+        .find((tab) => tab.url === `${server.baseUrl}/selection-target`)
+      expect(extension).toBeDefined()
+      expect(browserTab).toBeDefined()
+
+      const elementInventoryRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-elements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          maxElements: 10,
+        }),
+      })
+      expect(elementInventoryRes.status).toBe(200)
+      const elementInventoryJson = await elementInventoryRes.json() as {
+        success: boolean
+        frames: Array<{ selectionText?: string }>
+      }
+      expect(elementInventoryJson.success).toBe(true)
+      expect(elementInventoryJson.frames.some((frame) => frame.selectionText === 'Alpha selected browser text omega')).toBe(true)
+    } finally {
+      await page.close()
+      await server.close()
+    }
+  }, 15000)
+
   it('should select page element options through the extension relay', async () => {
     const browserContext = getBrowserContext()
     const serviceWorker = await getExtensionServiceWorker(browserContext)

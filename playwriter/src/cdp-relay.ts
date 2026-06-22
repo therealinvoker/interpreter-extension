@@ -328,6 +328,7 @@ export async function startPlayWriterCDPRelayServer({
           height: number
         } | null
       }
+      selectionText?: string
       elements: Array<{
         refId: string
         index: number

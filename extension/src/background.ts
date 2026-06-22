@@ -1051,6 +1051,7 @@ type PageElementInventoryResult =
             height: number
           } | null
         }
+        selectionText: string
         elements: Array<{
           refId: string
           index: number
@@ -1360,6 +1361,7 @@ async function getPageElementInventory(params: {
         for (const element of elements) {
           element.refId = `browser-element:${documentRevision}:${element.index}`
         }
+        const selectionText = compactText(window.getSelection()?.toString(), 2000)
 
         return {
           url: window.location.href,
@@ -1372,6 +1374,7 @@ async function getPageElementInventory(params: {
             devicePixelRatio: window.devicePixelRatio,
             screenBounds: viewportScreenBounds,
           },
+          selectionText,
           elements,
         }
       },
@@ -1393,6 +1396,7 @@ async function getPageElementInventory(params: {
           devicePixelRatio: 1,
           screenBounds: null,
         },
+        selectionText: result.result?.selectionText ?? '',
         elements: result.result?.elements ?? [],
       })),
     }
