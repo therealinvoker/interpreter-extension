@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.97
+
+### Changes
+
+- **Claim observed tabs for Playwright control through the local relay**: Interpreter can ask the extension to attach an allowed observed tab so advanced browser-control code can run against that exact Chrome tab.
+
 ## 0.0.96
 
 ### Changes

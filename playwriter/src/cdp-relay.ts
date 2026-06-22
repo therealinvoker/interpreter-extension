@@ -1298,6 +1298,66 @@ export async function startPlayWriterCDPRelayServer({
     }
   })
 
+  app.post('/extension/claim-tab', async (c) => {
+    try {
+      const body = (await c.req.json()) as {
+        extensionId?: string
+        chromeTabId?: number
+      }
+      const { extensionId, chromeTabId } = body
+      if (typeof chromeTabId !== 'number' || !Number.isInteger(chromeTabId) || chromeTabId < 1) {
+        return c.json({ success: false, error: 'chromeTabId is required' }, 400)
+      }
+
+      const extension = getExtensionConnection(extensionId)
+      if (!extension) {
+        return c.json({ success: false, error: 'Extension not connected' }, 400)
+      }
+      const browserTabs = await getBrowserTabInventory(extension.id)
+      const browserTab = browserTabs.windows
+        .flatMap((window) => window.tabs)
+        .find((tab) => tab.chromeTabId === chromeTabId)
+      if (!browserTab) {
+        return c.json({ success: false, error: 'Browser tab not found' }, 404)
+      }
+      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey)) {
+        return c.json({
+          success: false,
+          error: formatBrowserAccessPolicyErrorMessage({
+            policy: getCurrentAccessPolicy(),
+            attemptedUrl: browserTab.url,
+            action: 'use',
+            currentUrl: browserTab.url,
+          }),
+        }, 403)
+      }
+
+      const result = await sendToExtension({
+        extensionId: extension.id,
+        method: 'claimBrowserTab',
+        params: { chromeTabId },
+        timeout: 10_000,
+      }) as {
+        success?: boolean
+        error?: string
+        chromeTabId?: number
+        targetId?: string
+        sessionId?: string
+      }
+
+      return c.json({
+        success: result.success === true,
+        error: result.error,
+        chromeTabId: result.chromeTabId ?? chromeTabId,
+        targetId: result.targetId,
+        sessionId: result.sessionId,
+      }, result.success === true ? 200 : 500)
+    } catch (error: any) {
+      logger?.error('Claim tab endpoint error:', error)
+      return c.json({ success: false, error: error.message || String(error) }, 500)
+    }
+  })
+
   app.post('/extension/page-elements', async (c) => {
     try {
       const body = (await c.req.json()) as {

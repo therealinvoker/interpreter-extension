@@ -248,6 +248,20 @@ describe('Relay Navigation Tests', () => {
         success: false,
         error: expect.stringContaining('Interpreter browser settings blocked this request'),
       })
+
+      const claimTabRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extension/claim-tab`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: blockedTab!.chromeTabId,
+        }),
+      })
+      expect(claimTabRes.status).toBe(403)
+      await expect(claimTabRes.json()).resolves.toMatchObject({
+        success: false,
+        error: expect.stringContaining('Interpreter browser settings blocked this request'),
+      })
     } finally {
       await cleanupTestContext(noPolicyCtx)
       await server.close()
@@ -1337,6 +1351,49 @@ describe('Relay Navigation Tests', () => {
       active: true,
       shared: false,
     })
+
+    const claimTabRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/claim-tab`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: extensionWithUnsharedTab!.stableKey || extensionWithUnsharedTab!.extensionId,
+        chromeTabId: unsharedBrowserTab!.chromeTabId,
+      }),
+    })
+    expect(claimTabRes.status).toBe(200)
+    const claimTabJson = await claimTabRes.json() as {
+      success: boolean
+      chromeTabId: number
+      targetId: string
+      sessionId: string
+    }
+    expect(claimTabJson).toMatchObject({
+      success: true,
+      chromeTabId: unsharedBrowserTab!.chromeTabId,
+      targetId: expect.any(String),
+      sessionId: expect.any(String),
+    })
+
+    const claimedStatusRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extensions/status`)
+    expect(claimedStatusRes.status).toBe(200)
+    const claimedStatusJson = (await claimedStatusRes.json()) as typeof extensionsStatusJson
+    const claimedTabs = claimedStatusJson.extensions.flatMap((extension) => {
+      return (extension.browserTabs?.windows ?? []).flatMap((window) => window.tabs ?? [])
+    })
+    expect(claimedTabs.find((tab) => tab.chromeTabId === unsharedBrowserTab!.chromeTabId)).toMatchObject({
+      shared: true,
+      targetId: claimTabJson.targetId,
+    })
+
+    const claimedBrowser = await chromium.connectOverCDP(
+      getCdpUrl({
+        port: TEST_PORT,
+        extensionId: extensionWithUnsharedTab!.stableKey || extensionWithUnsharedTab!.extensionId,
+      }),
+    )
+    const claimedPages = claimedBrowser.contexts().flatMap((context) => context.pages())
+    expect(claimedPages.some((candidate) => candidate.url().includes('unshared-tab-inventory'))).toBe(true)
+    await safeCloseCDPBrowser(claimedBrowser)
 
     const elementInventoryRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-elements`, {
       method: 'POST',

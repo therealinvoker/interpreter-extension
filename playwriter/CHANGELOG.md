@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.117
+
+1. **Relay can claim observed tabs for Playwright control** — `/extension/claim-tab` checks profile-specific browser policy, asks the extension to attach the requested Chrome tab, and returns the resulting target/session ids.
+
 ## 0.0.116
 
 1. **Relay exposes page element select input** — `/extension/page-select` selects one exact option value on a policy-allowed browser select element, draws in-page feedback, and rejects stale refs before acting.

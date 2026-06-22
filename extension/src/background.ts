@@ -376,6 +376,14 @@ class ConnectionManager {
         return
       }
 
+      if (message.method === 'claimBrowserTab') {
+        sendMessage({
+          id: message.id,
+          result: await claimBrowserTab(message.params ?? {}),
+        })
+        return
+      }
+
       if (message.method === 'listBrowserTabs') {
         sendMessage({
           id: message.id,
@@ -915,6 +923,50 @@ async function activateBrowserTab(params: {
     await chrome.windows.update(tab.windowId, { focused: true })
     return { success: true }
   } catch (error: any) {
+    return { success: false, error: error?.message || String(error) }
+  }
+}
+
+async function claimBrowserTab(params: {
+  chromeTabId?: number
+}): Promise<{
+  success: true
+  chromeTabId: number
+  targetId: string
+  sessionId: string
+} | { success: false; error: string }> {
+  const chromeTabId = Number.isInteger(params.chromeTabId) ? params.chromeTabId : null
+  if (!chromeTabId || chromeTabId < 1) {
+    return { success: false, error: 'chromeTabId is required' }
+  }
+
+  const existing = store.getState().tabs.get(chromeTabId)
+  if (existing?.state === 'connected' && existing.targetId && existing.sessionId) {
+    return {
+      success: true,
+      chromeTabId,
+      targetId: existing.targetId,
+      sessionId: existing.sessionId,
+    }
+  }
+
+  try {
+    await chrome.tabs.get(chromeTabId)
+    setTabConnecting(chromeTabId)
+    await connectionManager.ensureConnection()
+    const { targetInfo, sessionId } = await attachTab(chromeTabId, { shareSource: 'agent-created' })
+    return {
+      success: true,
+      chromeTabId,
+      targetId: targetInfo.targetId,
+      sessionId,
+    }
+  } catch (error: any) {
+    store.setState((state) => {
+      const newTabs = new Map(state.tabs)
+      newTabs.set(chromeTabId, { state: 'error', errorText: `Error: ${error?.message || String(error)}` })
+      return { tabs: newTabs }
+    })
     return { success: false, error: error?.message || String(error) }
   }
 }
