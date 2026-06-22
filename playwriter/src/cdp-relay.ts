@@ -417,6 +417,7 @@ export async function startPlayWriterCDPRelayServer({
     error?: string
     chromeTabId?: number
     frameId?: number
+    refId?: string
     scrollX?: number
     scrollY?: number
     viewport?: {
@@ -1837,10 +1838,11 @@ export async function startPlayWriterCDPRelayServer({
         extensionId?: string
         chromeTabId?: number
         frameId?: number
+        refId?: string
         deltaX?: number
         deltaY?: number
       }
-      const { extensionId, chromeTabId, frameId, deltaX, deltaY } = body
+      const { extensionId, chromeTabId, frameId, refId, deltaX, deltaY } = body
       if (typeof chromeTabId !== 'number' || !Number.isInteger(chromeTabId) || chromeTabId < 1) {
         return c.json({ success: false, error: 'chromeTabId is required' }, 400)
       }
@@ -1880,7 +1882,7 @@ export async function startPlayWriterCDPRelayServer({
       const result = await sendToExtension({
         extensionId: extension.id,
         method: 'scrollPage',
-        params: { chromeTabId, frameId, deltaX: scrollDeltaX, deltaY: scrollDeltaY },
+        params: { chromeTabId, frameId, refId, deltaX: scrollDeltaX, deltaY: scrollDeltaY },
         timeout: 5_000,
       }) as PageScrollResult
 
@@ -1895,6 +1897,7 @@ export async function startPlayWriterCDPRelayServer({
         success: true,
         chromeTabId: result.chromeTabId ?? chromeTabId,
         frameId: result.frameId ?? frameId ?? 0,
+        refId: result.refId,
         scrollX: result.scrollX ?? 0,
         scrollY: result.scrollY ?? 0,
         viewport: result.viewport,

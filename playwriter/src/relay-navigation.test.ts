@@ -810,7 +810,14 @@ describe('Relay Navigation Tests', () => {
         '/scroll-target': `<!doctype html>
           <html>
             <body style="margin:0">
-              <div style="height:3200px; padding:20px">Scroll target</div>
+              <div style="height:3200px; padding:20px">
+                <div id="nested-scroller" role="region" aria-label="Nested scroll area" style="height:120px; width:240px; overflow:auto; border:1px solid #ccc">
+                  <div style="height:700px; padding:8px">
+                    <button id="nested-button" style="margin-top:20px">Nested action</button>
+                  </div>
+                </div>
+                <div>Scroll target</div>
+              </div>
               <script>
                 let scrollCount = 0;
                 window.addEventListener('scroll', () => {
@@ -820,6 +827,11 @@ describe('Relay Navigation Tests', () => {
                 });
                 document.body.setAttribute('data-scroll-count', '0');
                 document.body.setAttribute('data-scroll-y', '0');
+                const nestedScroller = document.getElementById('nested-scroller');
+                nestedScroller.addEventListener('scroll', () => {
+                  nestedScroller.setAttribute('data-scroll-y', String(Math.round(nestedScroller.scrollTop)));
+                });
+                nestedScroller.setAttribute('data-scroll-y', '0');
               </script>
             </body>
           </html>`,
@@ -854,6 +866,57 @@ describe('Relay Navigation Tests', () => {
         .find((tab) => tab.url === `${server.baseUrl}/scroll-target`)
       expect(extension).toBeDefined()
       expect(browserTab).toBeDefined()
+
+      const elementInventoryRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-elements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          frameId: 0,
+          maxElements: 20,
+        }),
+      })
+      expect(elementInventoryRes.status).toBe(200)
+      const elementInventoryJson = await elementInventoryRes.json() as {
+        success: boolean
+        frames: Array<{
+          frameId: number
+          elements: Array<{ refId: string; name: string }>
+        }>
+      }
+      expect(elementInventoryJson.success).toBe(true)
+      const nestedButton = elementInventoryJson.frames[0]?.elements.find((element) => element.name === 'Nested action')
+      expect(nestedButton).toBeDefined()
+
+      const nestedScrollRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-scroll`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          frameId: 0,
+          refId: nestedButton!.refId,
+          deltaY: 240,
+        }),
+      })
+      expect(nestedScrollRes.status).toBe(200)
+      await expect(nestedScrollRes.json()).resolves.toMatchObject({
+        success: true,
+        chromeTabId: browserTab!.chromeTabId,
+        frameId: 0,
+        refId: nestedButton!.refId,
+        scrollY: 240,
+      })
+      await expect.poll(() => {
+        return page.evaluate(() => ({
+          windowScrollY: Math.round(window.scrollY),
+          nestedScrollY: document.getElementById('nested-scroller')?.getAttribute('data-scroll-y'),
+        }))
+      }).toEqual({
+        windowScrollY: 0,
+        nestedScrollY: '240',
+      })
 
       const traceRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-trace`, {
         method: 'POST',

@@ -1079,6 +1079,7 @@ type PageScrollResult =
       success: true
       chromeTabId: number
       frameId: number
+      refId?: string
       scrollX: number
       scrollY: number
       viewport: {
@@ -2278,6 +2279,7 @@ async function selectPageElement(params: {
 async function scrollPage(params: {
   chromeTabId?: number
   frameId?: number
+  refId?: string
   deltaX?: number
   deltaY?: number
 }): Promise<PageScrollResult> {
@@ -2287,6 +2289,7 @@ async function scrollPage(params: {
   }
 
   const frameId = Number.isInteger(params.frameId) ? params.frameId! : 0
+  const refId = typeof params.refId === 'string' && params.refId.trim() ? params.refId.trim() : null
   const deltaX = Number.isFinite(params.deltaX) ? params.deltaX! : 0
   const deltaY = Number.isFinite(params.deltaY) ? params.deltaY! : 0
   if (deltaX === 0 && deltaY === 0) {
@@ -2297,13 +2300,169 @@ async function scrollPage(params: {
     await chrome.tabs.get(chromeTabId)
     const results = await chrome.scripting.executeScript({
       target: frameId > 0 ? { tabId: chromeTabId, frameIds: [frameId] } : { tabId: chromeTabId },
-      args: [deltaX, deltaY],
-      func: (requestedDeltaX: number, requestedDeltaY: number) => {
-        window.scrollBy(requestedDeltaX, requestedDeltaY)
+      args: [deltaX, deltaY, refId],
+      func: (requestedDeltaX: number, requestedDeltaY: number, requestedRefId: string | null) => {
+        const compactText = (value: string | null | undefined, maxLength: number) => {
+          return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, maxLength)
+        }
+
+        const stableHash = (value: string) => {
+          let hash = 2166136261
+          for (let i = 0; i < value.length; i += 1) {
+            hash ^= value.charCodeAt(i)
+            hash = Math.imul(hash, 16777619)
+          }
+          return (hash >>> 0).toString(36)
+        }
+
+        const attribute = (element: Element, name: string) => {
+          return compactText(element.getAttribute(name), 240)
+        }
+
+        const roleForElement = (element: HTMLElement) => {
+          const explicitRole = attribute(element, 'role')
+          if (explicitRole) return explicitRole
+          const tagName = element.tagName.toLowerCase()
+          if (tagName === 'a') return 'link'
+          if (tagName === 'button') return 'button'
+          if (tagName === 'select') return 'combobox'
+          if (tagName === 'textarea') return 'textbox'
+          if (tagName === 'input') {
+            const type = (element as HTMLInputElement).type || 'text'
+            if (type === 'checkbox') return 'checkbox'
+            if (type === 'radio') return 'radio'
+            if (type === 'button' || type === 'submit' || type === 'reset') return 'button'
+            return 'textbox'
+          }
+          if (element.isContentEditable) return 'textbox'
+          return tagName
+        }
+
+        const nameForElement = (element: HTMLElement) => {
+          return compactText(
+            element.getAttribute('aria-label')
+              || element.getAttribute('title')
+              || element.getAttribute('alt')
+              || element.getAttribute('placeholder')
+              || element.getAttribute('name')
+              || element.textContent,
+            240,
+          )
+        }
+
+        const valueForElement = (element: HTMLElement) => {
+          if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+            return compactText(element.value, 240)
+          }
+          return null
+        }
+
+        const isElementVisible = (element: HTMLElement) => {
+          const style = window.getComputedStyle(element)
+          if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
+            return false
+          }
+          const rect = element.getBoundingClientRect()
+          return rect.width > 0 && rect.height > 0
+        }
+
+        const isClickable = (element: HTMLElement) => {
+          const tagName = element.tagName.toLowerCase()
+          return tagName === 'a'
+            || tagName === 'button'
+            || element.getAttribute('role') === 'button'
+            || typeof element.onclick === 'function'
+            || element.tabIndex >= 0
+        }
+
+        const isEditable = (element: HTMLElement) => {
+          return element instanceof HTMLInputElement
+            || element instanceof HTMLTextAreaElement
+            || element instanceof HTMLSelectElement
+            || element.isContentEditable
+        }
+
+        let scroller: Element | Window = window
+        if (requestedRefId) {
+          const candidates = Array.from(document.querySelectorAll<HTMLElement>(
+            'a, button, input, textarea, select, summary, [role], [tabindex], [contenteditable="true"], [onclick]',
+          ))
+          const elements = []
+          for (const element of candidates) {
+            if (!isElementVisible(element)) continue
+            const rect = element.getBoundingClientRect()
+            const input = element instanceof HTMLInputElement ? element : null
+            elements.push({
+              element,
+              index: elements.length,
+              tagName: element.tagName.toLowerCase(),
+              role: roleForElement(element),
+              name: nameForElement(element),
+              text: compactText(element.textContent, 500),
+              value: valueForElement(element),
+              inputType: input?.type ?? null,
+              checked: input && (input.type === 'checkbox' || input.type === 'radio') ? input.checked : null,
+              disabled: Boolean((element as HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).disabled),
+              editable: isEditable(element),
+              clickable: isClickable(element),
+              bounds: {
+                x: Math.round(rect.x),
+                y: Math.round(rect.y),
+                width: Math.round(rect.width),
+                height: Math.round(rect.height),
+              },
+            })
+          }
+          const documentRevision = stableHash(JSON.stringify({
+            url: window.location.href,
+            elements: elements.map((element) => ({
+              index: element.index,
+              tagName: element.tagName,
+              role: element.role,
+              name: element.name,
+              text: element.text,
+              value: element.value,
+              inputType: element.inputType,
+              checked: element.checked,
+              disabled: element.disabled,
+              editable: element.editable,
+              clickable: element.clickable,
+              bounds: element.bounds,
+            })),
+          }))
+          const match = elements.find((element) => `browser-element:${documentRevision}:${element.index}` === requestedRefId)
+          if (!match) {
+            return { success: false as const, error: 'refId is stale or not visible' }
+          }
+          for (let current: HTMLElement | null = match.element; current; current = current.parentElement) {
+            const style = window.getComputedStyle(current)
+            const overflowX = style.overflowX
+            const overflowY = style.overflowY
+            const canScrollX = current.scrollWidth > current.clientWidth && ['auto', 'scroll', 'overlay'].includes(overflowX)
+            const canScrollY = current.scrollHeight > current.clientHeight && ['auto', 'scroll', 'overlay'].includes(overflowY)
+            if ((requestedDeltaX !== 0 && canScrollX) || (requestedDeltaY !== 0 && canScrollY)) {
+              scroller = current
+              break
+            }
+          }
+        }
+
+        if (scroller === window) {
+          window.scrollBy(requestedDeltaX, requestedDeltaY)
+        } else {
+          scroller.scrollBy(requestedDeltaX, requestedDeltaY)
+        }
+        const scrollX = scroller === window
+          ? Math.round(window.scrollX)
+          : Math.round((scroller as Element).scrollLeft)
+        const scrollY = scroller === window
+          ? Math.round(window.scrollY)
+          : Math.round((scroller as Element).scrollTop)
         return {
           success: true as const,
-          scrollX: Math.round(window.scrollX),
-          scrollY: Math.round(window.scrollY),
+          refId: requestedRefId ?? undefined,
+          scrollX,
+          scrollY,
           viewport: {
             width: window.innerWidth,
             height: window.innerHeight,
@@ -2321,6 +2480,7 @@ async function scrollPage(params: {
       success: true,
       chromeTabId,
       frameId: result.frameId,
+      refId: result.result.refId,
       scrollX: result.result.scrollX,
       scrollY: result.result.scrollY,
       viewport: result.result.viewport,
