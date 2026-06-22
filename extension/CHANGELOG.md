@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.98
+
+### Changes
+
+- **Honor read, write, and action browser-control permissions**: Interpreter browser control now lets the relay inspect allowed tabs while separately blocking typing/navigation and click/scroll/claim/control actions when those permission classes are denied.
+
 ## 0.0.97
 
 ### Changes

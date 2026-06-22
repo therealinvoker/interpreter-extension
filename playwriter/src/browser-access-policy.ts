@@ -1,13 +1,20 @@
-export type BrowserAccessPolicy = {
+export type BrowserAccessPermissionKind = 'read' | 'write' | 'action'
+
+export type BrowserAccessRule = {
   mode: 'ask' | 'deny' | 'all' | 'allowList'
   allowedPatterns: string[]
+}
+
+export type BrowserAccessPermissionRules = Record<BrowserAccessPermissionKind, BrowserAccessRule>
+
+export type BrowserAccessPolicy = {
+  permissions: BrowserAccessPermissionRules
   profilePolicies?: BrowserAccessProfilePolicy[]
 }
 
 export type BrowserAccessProfilePolicy = {
   profileId: string
-  mode: 'ask' | 'deny' | 'all' | 'allowList'
-  allowedPatterns: string[]
+  permissions: BrowserAccessPermissionRules
 }
 
 type ParsedPattern = {
@@ -110,29 +117,33 @@ export function doesBrowserAccessPolicyAllowUrl(
   policy: BrowserAccessPolicy | null | undefined,
   urlString: string,
   profileId?: string | null,
+  permissionKind: BrowserAccessPermissionKind = 'read',
 ): boolean {
   const profilePolicy = profileId
     ? policy?.profilePolicies?.find((entry) => entry.profileId === profileId)
     : null
-  const resolvedPolicy = profilePolicy || policy
+  const resolvedPermissions = profilePolicy?.permissions || policy?.permissions
 
-  if (resolvedPolicy?.mode === 'all') {
+  const rule = resolvedPermissions?.[permissionKind]
+  if (rule?.mode === 'all') {
     return true
   }
-  if (!resolvedPolicy || resolvedPolicy.mode === 'ask' || resolvedPolicy.mode === 'deny') {
+  if (!rule || rule.mode === 'ask' || rule.mode === 'deny') {
     return false
   }
 
-  return resolvedPolicy.allowedPatterns.some((pattern) => doesPatternMatchUrl(pattern, urlString))
+  return rule.allowedPatterns.some((pattern) => doesPatternMatchUrl(pattern, urlString))
 }
 
 export function formatBrowserAccessPolicyErrorMessage(params: {
   policy: BrowserAccessPolicy | null | undefined
   attemptedUrl: string
   action: 'open' | 'navigate' | 'use'
+  permissionKind?: BrowserAccessPermissionKind
   currentUrl?: string | null
 }): string {
-  const allowedPatterns = params.policy?.allowedPatterns ?? []
+  const permissionKind = params.permissionKind ?? 'read'
+  const allowedPatterns = params.policy?.permissions[permissionKind].allowedPatterns ?? []
   const patternSummary = allowedPatterns.length > 0
     ? allowedPatterns.join(', ')
     : 'no allowed page rules'

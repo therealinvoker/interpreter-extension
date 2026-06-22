@@ -27,6 +27,7 @@ import * as relayState from './relay-state.js'
 import {
   doesBrowserAccessPolicyAllowUrl,
   formatBrowserAccessPolicyErrorMessage,
+  type BrowserAccessPermissionKind,
   type BrowserAccessPolicy,
 } from './browser-access-policy.js'
 
@@ -106,28 +107,27 @@ export async function startPlayWriterCDPRelayServer({
   const isTargetAllowedByPolicy = (
     targetInfo: Protocol.Target.TargetInfo,
     policyProfileId?: string | null,
+    permissionKind: BrowserAccessPermissionKind = 'read',
   ): boolean => {
     const currentPolicy = getCurrentAccessPolicy()
-    if (currentPolicy?.mode === 'all') {
-      return true
-    }
     if (!targetInfo.url) {
       return false
     }
-    return doesBrowserAccessPolicyAllowUrl(currentPolicy, targetInfo.url, policyProfileId)
+    return doesBrowserAccessPolicyAllowUrl(currentPolicy, targetInfo.url, policyProfileId, permissionKind)
   }
 
   const isTargetVisibleToPlaywright = (
     targetInfo: Protocol.Target.TargetInfo,
     policyProfileId?: string | null,
   ): boolean => {
-    return !isRestrictedTarget(targetInfo) && isTargetAllowedByPolicy(targetInfo, policyProfileId)
+    return !isRestrictedTarget(targetInfo) && isTargetAllowedByPolicy(targetInfo, policyProfileId, 'read')
   }
 
   const getBlockedSessionTarget = (
     connectedTargets: Map<string, relayState.ConnectedTarget>,
     currentSessionId: string | undefined,
     policyProfileId?: string | null,
+    permissionKind: BrowserAccessPermissionKind = 'read',
   ): relayState.ConnectedTarget | null => {
     if (!currentSessionId) {
       return null
@@ -136,7 +136,7 @@ export async function startPlayWriterCDPRelayServer({
     if (!target) {
       return null
     }
-    return isTargetAllowedByPolicy(target.targetInfo, policyProfileId) ? null : target
+    return isTargetAllowedByPolicy(target.targetInfo, policyProfileId, permissionKind) ? null : target
   }
 
   const assertAllowedUrlForPolicy = ({
@@ -144,17 +144,16 @@ export async function startPlayWriterCDPRelayServer({
     action,
     currentUrl,
     policyProfileId,
+    permissionKind = 'read',
   }: {
     attemptedUrl: string
     action: 'open' | 'navigate' | 'use'
     currentUrl?: string | null
     policyProfileId?: string | null
+    permissionKind?: BrowserAccessPermissionKind
   }): void => {
     const currentPolicy = getCurrentAccessPolicy()
-    if (currentPolicy?.mode === 'all') {
-      return
-    }
-    if (doesBrowserAccessPolicyAllowUrl(currentPolicy, attemptedUrl, policyProfileId)) {
+    if (doesBrowserAccessPolicyAllowUrl(currentPolicy, attemptedUrl, policyProfileId, permissionKind)) {
       return
     }
     throw new Error(
@@ -163,6 +162,7 @@ export async function startPlayWriterCDPRelayServer({
         attemptedUrl,
         action,
         currentUrl,
+        permissionKind,
       }),
     )
   }
@@ -430,6 +430,23 @@ export async function startPlayWriterCDPRelayServer({
     } catch (error) {
       logger?.error('Failed to list browser tabs:', error)
       return { windows: [] }
+    }
+  }
+
+  function filterBrowserTabInventoryByPolicy(
+    inventory: BrowserTabInventory,
+    policyProfileId: string | null | undefined,
+    permissionKind: BrowserAccessPermissionKind,
+  ): BrowserTabInventory {
+    return {
+      windows: inventory.windows
+        .map((window) => ({
+          ...window,
+          tabs: window.tabs.filter((tab) => (
+            doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), tab.url, policyProfileId, permissionKind)
+          )),
+        }))
+        .filter((window) => window.tabs.length > 0),
     }
   }
 
@@ -877,7 +894,15 @@ export async function startPlayWriterCDPRelayServer({
     const connectedTargets = conn?.connectedTargets || new Map<string, relayState.ConnectedTarget>()
     const resolvedExtensionId = conn?.id || extensionId
     const policyProfileId = conn?.stableKey ?? conn?.id ?? extensionId
-    const blockedSessionTarget = getBlockedSessionTarget(connectedTargets, sessionId, policyProfileId)
+    const sessionPermissionKind: BrowserAccessPermissionKind = method === 'Page.navigate'
+      ? 'write'
+      : 'action'
+    const blockedSessionTarget = getBlockedSessionTarget(
+      connectedTargets,
+      sessionId,
+      policyProfileId,
+      sessionPermissionKind,
+    )
 
     if (blockedSessionTarget && method !== 'Page.navigate' && method !== 'Target.detachFromTarget') {
       throw new Error(
@@ -886,6 +911,7 @@ export async function startPlayWriterCDPRelayServer({
           attemptedUrl: blockedSessionTarget.targetInfo.url || 'this page',
           action: 'use',
           currentUrl: blockedSessionTarget.targetInfo.url || null,
+          permissionKind: sessionPermissionKind,
         }),
       )
     }
@@ -949,13 +975,14 @@ export async function startPlayWriterCDPRelayServer({
 
         for (const target of connectedTargets.values()) {
           if (target.targetId === attachParams.targetId) {
-            if (!isTargetVisibleToPlaywright(target.targetInfo, policyProfileId)) {
+            if (isRestrictedTarget(target.targetInfo) || !isTargetAllowedByPolicy(target.targetInfo, policyProfileId, 'action')) {
               throw new Error(
                 formatBrowserAccessPolicyErrorMessage({
                   policy: getCurrentAccessPolicy(),
                   attemptedUrl: target.targetInfo.url || 'this page',
                   action: 'use',
                   currentUrl: target.targetInfo.url || null,
+                  permissionKind: 'action',
                 }),
               )
             }
@@ -980,6 +1007,7 @@ export async function startPlayWriterCDPRelayServer({
                     attemptedUrl: target.targetInfo.url || 'this page',
                     action: 'use',
                     currentUrl: target.targetInfo.url || null,
+                    permissionKind: 'read',
                   }),
                 )
               }
@@ -1019,6 +1047,7 @@ export async function startPlayWriterCDPRelayServer({
           attemptedUrl: targetUrl,
           action: 'open',
           policyProfileId,
+          permissionKind: 'write',
         })
         return await sendToExtension({
           extensionId: resolvedExtensionId,
@@ -1028,6 +1057,17 @@ export async function startPlayWriterCDPRelayServer({
       }
 
       case 'Target.closeTarget': {
+        const closeTargetParams = params as Protocol.Target.CloseTargetRequest | undefined
+        const target = Array.from(connectedTargets.values()).find((entry) => entry.targetId === closeTargetParams?.targetId)
+        if (target) {
+          assertAllowedUrlForPolicy({
+            attemptedUrl: target.targetInfo.url || 'this page',
+            action: 'use',
+            currentUrl: target.targetInfo.url || null,
+            policyProfileId,
+            permissionKind: 'action',
+          })
+        }
         return await sendToExtension({
           extensionId: resolvedExtensionId,
           method: 'forwardCDPCommand',
@@ -1116,6 +1156,7 @@ export async function startPlayWriterCDPRelayServer({
           action: 'navigate',
           currentUrl: blockedSessionTarget?.targetInfo.url || connectedTargets.get(sessionId || '')?.targetInfo.url || null,
           policyProfileId,
+          permissionKind: 'write',
         })
         return await sendToExtension({
           extensionId: resolvedExtensionId,
@@ -1200,7 +1241,13 @@ export async function startPlayWriterCDPRelayServer({
           url: target.targetInfo.url || '',
           shareSource: target.shareSource || null,
         }))
-    const browserTabs = defaultExtension ? await getBrowserTabInventory(defaultExtension.id) : { windows: [] }
+    const browserTabs = defaultExtension
+      ? filterBrowserTabInventoryByPolicy(
+        await getBrowserTabInventory(defaultExtension.id),
+        defaultExtension.stableKey,
+        'read',
+      )
+      : { windows: [] }
 
     return c.json({
       connected,
@@ -1229,7 +1276,11 @@ export async function startPlayWriterCDPRelayServer({
           url: target.targetInfo.url || '',
           shareSource: target.shareSource || null,
         })),
-        browserTabs: await getBrowserTabInventory(ext.id),
+        browserTabs: filterBrowserTabInventoryByPolicy(
+          await getBrowserTabInventory(ext.id),
+          ext.stableKey,
+          'read',
+        ),
       }
     }))
     return c.json({ extensions })
@@ -1250,6 +1301,21 @@ export async function startPlayWriterCDPRelayServer({
       const { extensionId, targetId, bounds } = body
       if (!targetId || !bounds) {
         return c.json({ success: false, error: 'targetId and bounds are required' }, 400)
+      }
+      const extension = getExtensionConnection(extensionId)
+      const target = Array.from(extension?.connectedTargets.values() ?? [])
+        .find((entry) => entry.targetId === targetId)
+      if (target && !doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), target.targetInfo.url || '', extension?.stableKey, 'action')) {
+        return c.json({
+          success: false,
+          error: formatBrowserAccessPolicyErrorMessage({
+            policy: getCurrentAccessPolicy(),
+            attemptedUrl: target.targetInfo.url || 'this page',
+            action: 'use',
+            currentUrl: target.targetInfo.url || null,
+            permissionKind: 'action',
+          }),
+        }, 403)
       }
 
       const result = await sendToExtension({
@@ -1280,9 +1346,32 @@ export async function startPlayWriterCDPRelayServer({
       if (typeof chromeTabId !== 'number' || !Number.isInteger(chromeTabId) || chromeTabId < 1) {
         return c.json({ success: false, error: 'chromeTabId is required' }, 400)
       }
+      const extension = getExtensionConnection(extensionId)
+      if (!extension) {
+        return c.json({ success: false, error: 'Extension not connected' }, 400)
+      }
+      const browserTabs = await getBrowserTabInventory(extension.id)
+      const browserTab = browserTabs.windows
+        .flatMap((window) => window.tabs)
+        .find((tab) => tab.chromeTabId === chromeTabId)
+      if (!browserTab) {
+        return c.json({ success: false, error: 'Browser tab not found' }, 404)
+      }
+      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'action')) {
+        return c.json({
+          success: false,
+          error: formatBrowserAccessPolicyErrorMessage({
+            policy: getCurrentAccessPolicy(),
+            attemptedUrl: browserTab.url,
+            action: 'use',
+            currentUrl: browserTab.url,
+            permissionKind: 'action',
+          }),
+        }, 403)
+      }
 
       const result = await sendToExtension({
-        extensionId,
+        extensionId: extension.id,
         method: 'activateBrowserTab',
         params: { chromeTabId, windowId },
         timeout: 5_000,
@@ -1320,7 +1409,7 @@ export async function startPlayWriterCDPRelayServer({
       if (!browserTab) {
         return c.json({ success: false, error: 'Browser tab not found' }, 404)
       }
-      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey)) {
+      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'action')) {
         return c.json({
           success: false,
           error: formatBrowserAccessPolicyErrorMessage({
@@ -1328,6 +1417,7 @@ export async function startPlayWriterCDPRelayServer({
             attemptedUrl: browserTab.url,
             action: 'use',
             currentUrl: browserTab.url,
+            permissionKind: 'action',
           }),
         }, 403)
       }
@@ -1384,7 +1474,7 @@ export async function startPlayWriterCDPRelayServer({
       if (!browserTab) {
         return c.json({ success: false, error: 'Browser tab not found' }, 404)
       }
-      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey)) {
+      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'read')) {
         return c.json({
           success: false,
           error: formatBrowserAccessPolicyErrorMessage({
@@ -1392,6 +1482,7 @@ export async function startPlayWriterCDPRelayServer({
             attemptedUrl: browserTab.url,
             action: 'use',
             currentUrl: browserTab.url,
+            permissionKind: 'read',
           }),
         }, 403)
       }
@@ -1471,7 +1562,7 @@ export async function startPlayWriterCDPRelayServer({
       if (!browserTab) {
         return c.json({ success: false, error: 'Browser tab not found' }, 404)
       }
-      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey)) {
+      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'action')) {
         return c.json({
           success: false,
           error: formatBrowserAccessPolicyErrorMessage({
@@ -1479,6 +1570,7 @@ export async function startPlayWriterCDPRelayServer({
             attemptedUrl: browserTab.url,
             action: 'use',
             currentUrl: browserTab.url,
+            permissionKind: 'action',
           }),
         }, 403)
       }
@@ -1544,7 +1636,7 @@ export async function startPlayWriterCDPRelayServer({
       if (!browserTab) {
         return c.json({ success: false, error: 'Browser tab not found' }, 404)
       }
-      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey)) {
+      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'action')) {
         return c.json({
           success: false,
           error: formatBrowserAccessPolicyErrorMessage({
@@ -1552,6 +1644,7 @@ export async function startPlayWriterCDPRelayServer({
             attemptedUrl: browserTab.url,
             action: 'use',
             currentUrl: browserTab.url,
+            permissionKind: 'action',
           }),
         }, 403)
       }
@@ -1621,7 +1714,7 @@ export async function startPlayWriterCDPRelayServer({
       if (!browserTab) {
         return c.json({ success: false, error: 'Browser tab not found' }, 404)
       }
-      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey)) {
+      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'write')) {
         return c.json({
           success: false,
           error: formatBrowserAccessPolicyErrorMessage({
@@ -1629,6 +1722,7 @@ export async function startPlayWriterCDPRelayServer({
             attemptedUrl: browserTab.url,
             action: 'use',
             currentUrl: browserTab.url,
+            permissionKind: 'write',
           }),
         }, 403)
       }
@@ -1699,7 +1793,7 @@ export async function startPlayWriterCDPRelayServer({
       if (!browserTab) {
         return c.json({ success: false, error: 'Browser tab not found' }, 404)
       }
-      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey)) {
+      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'write')) {
         return c.json({
           success: false,
           error: formatBrowserAccessPolicyErrorMessage({
@@ -1707,6 +1801,7 @@ export async function startPlayWriterCDPRelayServer({
             attemptedUrl: browserTab.url,
             action: 'use',
             currentUrl: browserTab.url,
+            permissionKind: 'write',
           }),
         }, 403)
       }
@@ -1772,7 +1867,7 @@ export async function startPlayWriterCDPRelayServer({
       if (!browserTab) {
         return c.json({ success: false, error: 'Browser tab not found' }, 404)
       }
-      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey)) {
+      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'action')) {
         return c.json({
           success: false,
           error: formatBrowserAccessPolicyErrorMessage({
@@ -1780,6 +1875,7 @@ export async function startPlayWriterCDPRelayServer({
             attemptedUrl: browserTab.url,
             action: 'use',
             currentUrl: browserTab.url,
+            permissionKind: 'action',
           }),
         }, 403)
       }

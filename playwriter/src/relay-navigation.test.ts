@@ -16,6 +16,7 @@ import './test-declarations.js'
 
 const TEST_PORT = 19992
 const NO_POLICY_TEST_PORT = 19993
+const MATRIX_POLICY_TEST_PORT = 19994
 const FIXTURE_EXTENSION_PATH = path.resolve('../extension/test-fixtures/fixture-extension')
 
 describe('Relay Navigation Tests', () => {
@@ -137,7 +138,7 @@ describe('Relay Navigation Tests', () => {
       const inventoryTabs = statusJson.browserTabs.windows.flatMap((window) => window.tabs)
       expect(statusJson.activeTargets).toBe(0)
       expect(statusJson.targets).toEqual([])
-      expect(inventoryTabs.some((tab) => tab.url.startsWith(server.baseUrl) && tab.shared === true)).toBe(true)
+      expect(inventoryTabs.some((tab) => tab.url.startsWith(server.baseUrl))).toBe(false)
 
       const extensionsStatusRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extensions/status`)
       const extensionsStatusJson = await extensionsStatusRes.json() as {
@@ -147,14 +148,12 @@ describe('Relay Navigation Tests', () => {
           browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string; active?: boolean }> }> }
         }>
       }
-      const extension = extensionsStatusJson.extensions.find((candidate) => {
-        return (candidate.browserTabs?.windows ?? []).some((window) => {
-          return (window.tabs ?? []).some((tab) => tab.url.startsWith(server.baseUrl))
-        })
+      const extension = extensionsStatusJson.extensions[0]
+      const blockedTab = await serviceWorker.evaluate(async () => {
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
+        const tab = tabs[0]
+        return tab?.id ? { chromeTabId: tab.id, url: tab.url || '' } : null
       })
-      const blockedTab = extension?.browserTabs?.windows
-        ?.flatMap((window) => window.tabs ?? [])
-        .find((tab) => tab.url.startsWith(server.baseUrl))
       expect(extension).toBeDefined()
       expect(blockedTab).toBeDefined()
 
@@ -264,6 +263,120 @@ describe('Relay Navigation Tests', () => {
       })
     } finally {
       await cleanupTestContext(noPolicyCtx)
+      await server.close()
+    }
+  }, 60000)
+
+  it('should enforce read write and action browser policy classes separately', async () => {
+    let matrixCtx: TestContext | null = null
+    const server = await createSimpleServer({
+      routes: {
+        '/': `<!doctype html>
+          <html>
+            <body>
+              <button id="run">Run</button>
+              <input id="name" aria-label="Name">
+              <select id="choice" aria-label="Choice"><option value="a">A</option><option value="b">B</option></select>
+            </body>
+          </html>`,
+      },
+    })
+
+    try {
+      matrixCtx = await setupTestContext({
+        port: MATRIX_POLICY_TEST_PORT,
+        tempDirPrefix: 'pw-nav-matrix-policy-test-',
+        accessPolicy: {
+          permissions: {
+            read: { mode: 'all', allowedPatterns: [] },
+            write: { mode: 'deny', allowedPatterns: [] },
+            action: { mode: 'deny', allowedPatterns: [] },
+          },
+          profilePolicies: [],
+        },
+      })
+      const serviceWorker = await getExtensionServiceWorker(matrixCtx.browserContext)
+      const page = await matrixCtx.browserContext.newPage()
+      await page.goto(server.baseUrl, { waitUntil: 'domcontentloaded' })
+      await page.bringToFront()
+
+      await serviceWorker.evaluate(async () => {
+        await globalThis.toggleExtensionForActiveTab()
+      })
+
+      const extensionsStatusRes = await fetch(`http://127.0.0.1:${MATRIX_POLICY_TEST_PORT}/extensions/status`)
+      expect(extensionsStatusRes.status).toBe(200)
+      const extensionsStatusJson = await extensionsStatusRes.json() as {
+        extensions: Array<{
+          extensionId: string
+          stableKey?: string
+          browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string }> }> }
+        }>
+      }
+      const extension = extensionsStatusJson.extensions.find((candidate) => {
+        return (candidate.browserTabs?.windows ?? []).some((window) => (
+          (window.tabs ?? []).some((tab) => tab.url.startsWith(server.baseUrl))
+        ))
+      })
+      const readableTab = extension?.browserTabs?.windows
+        ?.flatMap((window) => window.tabs ?? [])
+        .find((tab) => tab.url.startsWith(server.baseUrl))
+      expect(extension).toBeDefined()
+      expect(readableTab).toBeDefined()
+
+      const pageElementsRes = await fetch(`http://127.0.0.1:${MATRIX_POLICY_TEST_PORT}/extension/page-elements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: readableTab!.chromeTabId,
+        }),
+      })
+      expect(pageElementsRes.status).toBe(200)
+      await expect(pageElementsRes.json()).resolves.toMatchObject({ success: true })
+
+      for (const endpoint of ['page-trace', 'page-click', 'page-scroll', 'claim-tab']) {
+        const body = endpoint === 'page-trace'
+          ? { chromeTabId: readableTab!.chromeTabId, bounds: { x: 10, y: 10, width: 20, height: 20 } }
+          : endpoint === 'page-click'
+            ? { chromeTabId: readableTab!.chromeTabId, refId: 'browser-element:blocked:0' }
+            : endpoint === 'page-scroll'
+              ? { chromeTabId: readableTab!.chromeTabId, deltaY: 200 }
+              : { chromeTabId: readableTab!.chromeTabId }
+        const res = await fetch(`http://127.0.0.1:${MATRIX_POLICY_TEST_PORT}/extension/${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            extensionId: extension!.stableKey || extension!.extensionId,
+            ...body,
+          }),
+        })
+        expect(res.status, endpoint).toBe(403)
+        await expect(res.json()).resolves.toMatchObject({
+          success: false,
+          error: expect.stringContaining('Interpreter browser settings blocked this request'),
+        })
+      }
+
+      for (const endpoint of ['page-type', 'page-select']) {
+        const res = await fetch(`http://127.0.0.1:${MATRIX_POLICY_TEST_PORT}/extension/${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            extensionId: extension!.stableKey || extension!.extensionId,
+            chromeTabId: readableTab!.chromeTabId,
+            refId: 'browser-element:blocked:0',
+            ...(endpoint === 'page-type' ? { text: 'blocked' } : { value: 'b' }),
+          }),
+        })
+        expect(res.status, endpoint).toBe(403)
+        await expect(res.json()).resolves.toMatchObject({
+          success: false,
+          error: expect.stringContaining('Interpreter browser settings blocked this request'),
+        })
+      }
+    } finally {
+      await cleanupTestContext(matrixCtx)
       await server.close()
     }
   }, 60000)

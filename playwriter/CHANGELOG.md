@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.118
+
+1. **Relay enforces browser read/write/action policy classes** — tab inventory and element inspection use read permission, type/select/navigation use write permission, and claim/click/scroll/trace/window-control paths use action permission.
+
 ## 0.0.117
 
 1. **Relay can claim observed tabs for Playwright control** — `/extension/claim-tab` checks profile-specific browser policy, asks the extension to attach the requested Chrome tab, and returns the resulting target/session ids.

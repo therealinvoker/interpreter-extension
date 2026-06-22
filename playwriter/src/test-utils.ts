@@ -80,8 +80,11 @@ export async function setupTestContext({
   toggleExtension = false,
   additionalExtensions = [],
   accessPolicy = {
-    mode: 'all',
-    allowedPatterns: [],
+    permissions: {
+      read: { mode: 'all', allowedPatterns: [] },
+      write: { mode: 'all', allowedPatterns: [] },
+      action: { mode: 'all', allowedPatterns: [] },
+    },
     profilePolicies: [],
   },
 }: {
