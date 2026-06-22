@@ -144,7 +144,7 @@ describe('Relay Navigation Tests', () => {
         extensions: Array<{
           extensionId: string
           stableKey?: string
-          browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string }> }> }
+          browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string; active?: boolean }> }> }
         }>
       }
       const extension = extensionsStatusJson.extensions.find((candidate) => {
@@ -321,7 +321,7 @@ describe('Relay Navigation Tests', () => {
         extensions: Array<{
           extensionId: string
           stableKey?: string
-          browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string }> }> }
+          browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string; active?: boolean }> }> }
         }>
       }
       const extension = extensionsStatusJson.extensions.find((candidate) => {
@@ -485,7 +485,7 @@ describe('Relay Navigation Tests', () => {
         extensions: Array<{
           extensionId: string
           stableKey?: string
-          browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string }> }> }
+          browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string; active?: boolean }> }> }
         }>
       }
       const extension = extensionsStatusJson.extensions.find((candidate) => {
@@ -736,6 +736,7 @@ describe('Relay Navigation Tests', () => {
       },
     })
     const page = await browserContext.newPage()
+    let foregroundPage: Page | null = null
 
     try {
       await page.goto(`${server.baseUrl}/click-target`, { waitUntil: 'domcontentloaded' })
@@ -751,7 +752,7 @@ describe('Relay Navigation Tests', () => {
         extensions: Array<{
           extensionId: string
           stableKey?: string
-          browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string }> }> }
+          browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string; active?: boolean }> }> }
         }>
       }
       const extension = extensionsStatusJson.extensions.find((candidate) => {
@@ -794,6 +795,24 @@ describe('Relay Navigation Tests', () => {
       })
       expect(button).toBeDefined()
 
+      foregroundPage = await browserContext.newPage()
+      await foregroundPage.goto('https://example.com/?test=foreground-tab', { waitUntil: 'domcontentloaded' })
+      await foregroundPage.bringToFront()
+      await expect.poll(async () => {
+        const statusRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extensions/status`)
+        const statusJson = await statusRes.json() as typeof extensionsStatusJson
+        const tabs = statusJson.extensions.flatMap((candidate) => {
+          return (candidate.browserTabs?.windows ?? []).flatMap((window) => window.tabs ?? [])
+        })
+        return {
+          targetActive: tabs.find((tab) => tab.chromeTabId === browserTab!.chromeTabId)?.active,
+          foregroundActive: tabs.find((tab) => tab.url === 'https://example.com/?test=foreground-tab')?.active,
+        }
+      }).toEqual({
+        targetActive: false,
+        foregroundActive: true,
+      })
+
       const clickRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-click`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -816,6 +835,13 @@ describe('Relay Navigation Tests', () => {
       await expect.poll(() => {
         return page.locator('#count').textContent()
       }).toBe('Clicked 1')
+      await expect.poll(() => {
+        return page.evaluate(() => ({
+          clickCount: document.body.getAttribute('data-click-count'),
+        }))
+      }).toEqual({
+        clickCount: '1',
+      })
       await page.waitForFunction(() => {
         return Boolean(document.getElementById('interpreter-browser-control-trace'))
       }, null, { timeout: 5000 })
@@ -836,6 +862,7 @@ describe('Relay Navigation Tests', () => {
         error: 'refId is stale or not visible',
       })
     } finally {
+      await foregroundPage?.close()
       await page.close()
       await server.close()
     }
