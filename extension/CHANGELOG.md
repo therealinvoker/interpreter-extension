@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.95
+
+### Changes
+
+- **Scroll policy-allowed page frames through the local relay**: Interpreter can ask the private relay to scroll a current tab/frame and receive the resulting viewport scroll position.
+
 ## 0.0.94
 
 ### Changes

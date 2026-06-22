@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.115
+
+1. **Relay exposes page frame scrolling** — `/extension/page-scroll` scrolls one policy-allowed browser frame and returns the resulting viewport position.
+
 ## 0.0.114
 
 1. **Relay exposes page element text input** — `/extension/page-type` replaces one policy-allowed editable browser element value, draws in-page feedback, and rejects stale refs before acting.

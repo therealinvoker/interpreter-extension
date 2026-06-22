@@ -217,6 +217,21 @@ describe('Relay Navigation Tests', () => {
         success: false,
         error: expect.stringContaining('Interpreter browser settings blocked this request'),
       })
+
+      const pageScrollRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extension/page-scroll`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: blockedTab!.chromeTabId,
+          deltaY: 200,
+        }),
+      })
+      expect(pageScrollRes.status).toBe(403)
+      await expect(pageScrollRes.json()).resolves.toMatchObject({
+        success: false,
+        error: expect.stringContaining('Interpreter browser settings blocked this request'),
+      })
     } finally {
       await cleanupTestContext(noPolicyCtx)
       await server.close()
@@ -376,6 +391,97 @@ describe('Relay Navigation Tests', () => {
       await expect(staleTypeRes.json()).resolves.toMatchObject({
         success: false,
         error: 'refId is stale or not visible',
+      })
+    } finally {
+      await page.close()
+      await server.close()
+    }
+  }, 60000)
+
+  it('should scroll page frames through the extension relay', async () => {
+    const browserContext = getBrowserContext()
+    const serviceWorker = await getExtensionServiceWorker(browserContext)
+    const server = await createSimpleServer({
+      routes: {
+        '/scroll-target': `<!doctype html>
+          <html>
+            <body style="margin:0">
+              <div style="height:3200px; padding:20px">Scroll target</div>
+              <script>
+                let scrollCount = 0;
+                window.addEventListener('scroll', () => {
+                  scrollCount += 1;
+                  document.body.setAttribute('data-scroll-count', String(scrollCount));
+                  document.body.setAttribute('data-scroll-y', String(Math.round(window.scrollY)));
+                });
+                document.body.setAttribute('data-scroll-count', '0');
+                document.body.setAttribute('data-scroll-y', '0');
+              </script>
+            </body>
+          </html>`,
+      },
+    })
+    const page = await browserContext.newPage()
+
+    try {
+      await page.goto(`${server.baseUrl}/scroll-target`, { waitUntil: 'domcontentloaded' })
+      await page.bringToFront()
+
+      await serviceWorker.evaluate(async () => {
+        await globalThis.toggleExtensionForActiveTab()
+      })
+
+      const extensionsStatusRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extensions/status`)
+      expect(extensionsStatusRes.status).toBe(200)
+      const extensionsStatusJson = await extensionsStatusRes.json() as {
+        extensions: Array<{
+          extensionId: string
+          stableKey?: string
+          browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string }> }> }
+        }>
+      }
+      const extension = extensionsStatusJson.extensions.find((candidate) => {
+        return (candidate.browserTabs?.windows ?? []).some((window) => {
+          return (window.tabs ?? []).some((tab) => tab.url === `${server.baseUrl}/scroll-target`)
+        })
+      })
+      const browserTab = extension?.browserTabs?.windows
+        ?.flatMap((window) => window.tabs ?? [])
+        .find((tab) => tab.url === `${server.baseUrl}/scroll-target`)
+      expect(extension).toBeDefined()
+      expect(browserTab).toBeDefined()
+
+      const scrollRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-scroll`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          frameId: 0,
+          deltaY: 700,
+        }),
+      })
+      expect(scrollRes.status).toBe(200)
+      await expect(scrollRes.json()).resolves.toMatchObject({
+        success: true,
+        chromeTabId: browserTab!.chromeTabId,
+        frameId: 0,
+        scrollY: expect.any(Number),
+        viewport: {
+          width: expect.any(Number),
+          height: expect.any(Number),
+        },
+      })
+      await expect.poll(() => {
+        return page.evaluate(() => ({
+          scrollY: Math.round(window.scrollY),
+          scrollCount: document.body.getAttribute('data-scroll-count'),
+          dataScrollY: document.body.getAttribute('data-scroll-y'),
+        }))
+      }).toEqual({
+        scrollY: 700,
+        scrollCount: '1',
+        dataScrollY: '700',
       })
     } finally {
       await page.close()

@@ -416,6 +416,14 @@ class ConnectionManager {
         return
       }
 
+      if (message.method === 'scrollPage') {
+        sendMessage({
+          id: message.id,
+          result: await scrollPage(message.params ?? {}),
+        })
+        return
+      }
+
       const response: ExtensionResponseMessage = { id: message.id }
       try {
         response.result = await handleCommand(message as ExtensionCommandMessage)
@@ -1050,6 +1058,23 @@ type PageTypeResult =
       bounds: {
         x: number
         y: number
+        width: number
+        height: number
+      }
+    }
+  | {
+      success: false
+      error: string
+    }
+
+type PageScrollResult =
+  | {
+      success: true
+      chromeTabId: number
+      frameId: number
+      scrollX: number
+      scrollY: number
+      viewport: {
         width: number
         height: number
       }
@@ -1989,6 +2014,61 @@ async function typePageElement(params: {
       refId,
       value: result.result.value,
       bounds: result.result.bounds,
+    }
+  } catch (error: any) {
+    return { success: false, error: error?.message || String(error) }
+  }
+}
+
+async function scrollPage(params: {
+  chromeTabId?: number
+  frameId?: number
+  deltaX?: number
+  deltaY?: number
+}): Promise<PageScrollResult> {
+  const chromeTabId = Number.isInteger(params.chromeTabId) ? params.chromeTabId : null
+  if (!chromeTabId || chromeTabId < 1) {
+    return { success: false, error: 'chromeTabId is required' }
+  }
+
+  const frameId = Number.isInteger(params.frameId) ? params.frameId! : 0
+  const deltaX = Number.isFinite(params.deltaX) ? params.deltaX! : 0
+  const deltaY = Number.isFinite(params.deltaY) ? params.deltaY! : 0
+  if (deltaX === 0 && deltaY === 0) {
+    return { success: false, error: 'deltaX or deltaY is required' }
+  }
+
+  try {
+    await chrome.tabs.get(chromeTabId)
+    const results = await chrome.scripting.executeScript({
+      target: frameId > 0 ? { tabId: chromeTabId, frameIds: [frameId] } : { tabId: chromeTabId },
+      args: [deltaX, deltaY],
+      func: (requestedDeltaX: number, requestedDeltaY: number) => {
+        window.scrollBy(requestedDeltaX, requestedDeltaY)
+        return {
+          success: true as const,
+          scrollX: Math.round(window.scrollX),
+          scrollY: Math.round(window.scrollY),
+          viewport: {
+            width: window.innerWidth,
+            height: window.innerHeight,
+          },
+        }
+      },
+    })
+
+    const result = results[0]
+    if (result?.result?.success !== true) {
+      return { success: false, error: 'Page scroll failed' }
+    }
+
+    return {
+      success: true,
+      chromeTabId,
+      frameId: result.frameId,
+      scrollX: result.result.scrollX,
+      scrollY: result.result.scrollY,
+      viewport: result.result.viewport,
     }
   } catch (error: any) {
     return { success: false, error: error?.message || String(error) }
