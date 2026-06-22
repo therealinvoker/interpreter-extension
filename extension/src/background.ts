@@ -153,12 +153,8 @@ async function getExtensionConnectionInfo(): Promise<ExtensionConnectionInfo> {
   return connectionInfoPromise
 }
 
-const TAB_GROUP_COLOR: chrome.tabGroups.ColorEnum = 'green'
-const TAB_GROUP_TITLE = 'Interpreter'
-
 let childSessions: Map<string, { tabId: number; targetId?: string }> = new Map()
 let nextSessionId = 1
-let tabGroupQueue: Promise<void> = Promise.resolve()
 // Cache Target.setAutoAttach params so existing and future tabs enable OOPIF target events.
 // This ensures Playwright can build the iframe frame tree when connecting over CDP.
 let autoAttachParams: Protocol.Target.SetAutoAttachRequest | null = null
@@ -750,86 +746,6 @@ export function sendMessage(message: any): void {
     } catch (error: any) {
       console.debug('ERROR sending message:', error, 'message type:', message.method || 'response')
     }
-  }
-}
-
-async function syncTabGroup(): Promise<void> {
-  try {
-    // Include 'connecting' tabs in the group only when the relay is alive, so that
-    // tabs the user drags into the group stay visible while attaching. When the relay
-    // is dead all tabs are 'connecting' (waiting for reconnect) and the group should
-    // be cleaned up. The onUpdated handler (line ~1601) already guards against the
-    // ungroup→disconnect loop for 'connecting' tabs, so excluding them here is safe.
-    const { connectionState } = store.getState()
-    const isRelayConnected = connectionState === 'connected'
-    const connectedTabIds = Array.from(store.getState().tabs.entries())
-      .filter(([_, info]) => info.state === 'connected' || (info.state === 'connecting' && isRelayConnected))
-      .map(([tabId]) => tabId)
-
-    // Always query by title - no cached ID that can go stale
-    const existingGroups = await chrome.tabGroups.query({ title: TAB_GROUP_TITLE })
-
-    // If no connected tabs, clear any existing playwriter groups
-    if (connectedTabIds.length === 0) {
-      for (const group of existingGroups) {
-        const tabsInGroup = await chrome.tabs.query({ groupId: group.id })
-        const tabIdsToUngroup = tabsInGroup.map((t) => t.id).filter((id): id is number => id !== undefined)
-        if (tabIdsToUngroup.length > 0) {
-          await chrome.tabs.ungroup(tabIdsToUngroup)
-        }
-        logger.debug('Cleared playwriter group:', group.id)
-      }
-      return
-    }
-
-    // Consolidate duplicate groups into one
-    let groupId: number | undefined = existingGroups[0]?.id
-    if (existingGroups.length > 1) {
-      const [keep, ...duplicates] = existingGroups
-      groupId = keep.id
-      for (const group of duplicates) {
-        const tabsInDupe = await chrome.tabs.query({ groupId: group.id })
-        const tabIdsToUngroup = tabsInDupe.map((t) => t.id).filter((id): id is number => id !== undefined)
-        if (tabIdsToUngroup.length > 0) {
-          await chrome.tabs.ungroup(tabIdsToUngroup)
-        }
-        logger.debug('Removed duplicate playwriter group:', group.id)
-      }
-    }
-
-    const allTabs = await chrome.tabs.query({})
-    const tabsInGroup = allTabs.filter((t) => t.groupId === groupId && t.id !== undefined)
-    const tabIdsInGroup = new Set(tabsInGroup.map((t) => t.id!))
-
-    const tabsToAdd = connectedTabIds.filter((id) => !tabIdsInGroup.has(id))
-    const tabsToRemove = Array.from(tabIdsInGroup).filter((id) => !connectedTabIds.includes(id))
-
-    if (tabsToRemove.length > 0) {
-      try {
-        await chrome.tabs.ungroup(tabsToRemove)
-        logger.debug('Removed tabs from group:', tabsToRemove)
-      } catch (e: any) {
-        logger.debug('Failed to ungroup tabs:', tabsToRemove, e.message)
-      }
-    }
-
-    if (tabsToAdd.length > 0) {
-      if (groupId === undefined) {
-        const newGroupId = await chrome.tabs.group({ tabIds: tabsToAdd })
-        await chrome.tabGroups.update(newGroupId, { title: TAB_GROUP_TITLE, color: TAB_GROUP_COLOR })
-        logger.debug('Created tab group:', newGroupId, 'with tabs:', tabsToAdd)
-      } else {
-        await chrome.tabs.group({ tabIds: tabsToAdd, groupId })
-        await chrome.tabGroups.update(groupId, { title: TAB_GROUP_TITLE, color: TAB_GROUP_COLOR })
-        logger.debug('Added tabs to existing group:', tabsToAdd)
-      }
-    } else if (groupId !== undefined) {
-      // No tabs to add, but ensure the existing group keeps the right color/title.
-      // Chrome can reset these on group collapse/expand or tab moves.
-      await chrome.tabGroups.update(groupId, { title: TAB_GROUP_TITLE, color: TAB_GROUP_COLOR })
-    }
-  } catch (error: any) {
-    logger.debug('Failed to sync tab group:', error.message)
   }
 }
 
@@ -3021,14 +2937,10 @@ async function toggleExtensionForActiveTab(): Promise<{ isConnected: boolean; st
 }
 
 async function disconnectEverything(): Promise<void> {
-  // Queue disconnect operation to serialize with other tab group operations
-  tabGroupQueue = tabGroupQueue.then(async () => {
-    const { tabs } = store.getState()
-    for (const tabId of tabs.keys()) {
-      await disconnectTab(tabId)
-    }
-  })
-  await tabGroupQueue
+  const { tabs } = store.getState()
+  for (const tabId of tabs.keys()) {
+    await disconnectTab(tabId)
+  }
   // WS connection is maintained - maintainConnection handles it
 }
 
@@ -3276,20 +3188,10 @@ chrome.runtime.onInstalled.addListener((details) => {
   }
 })
 
-function serializeTabs(tabs: Map<number, TabInfo>): string {
-  return JSON.stringify(Array.from(tabs.entries()))
-}
-
-store.subscribe((state, prevState) => {
+store.subscribe((state) => {
   logger.log(state)
   void updateIcons()
   updateContextMenuVisibility()
-  const tabsChanged = serializeTabs(state.tabs) !== serializeTabs(prevState.tabs)
-  if (tabsChanged) {
-    tabGroupQueue = tabGroupQueue.then(syncTabGroup).catch((e) => {
-      logger.debug('syncTabGroup error:', e)
-    })
-  }
 })
 
 logger.debug(`Using relay host: ${RELAY_HOST}, port: ${RELAY_PORT}`)
@@ -3350,38 +3252,8 @@ checkMemory()
 chrome.tabs.onRemoved.addListener(onTabRemoved)
 chrome.tabs.onActivated.addListener(onTabActivated)
 chrome.action.onClicked.addListener(onActionClicked)
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+chrome.tabs.onUpdated.addListener(() => {
   void updateIcons()
-  if (changeInfo.groupId !== undefined) {
-    // Queue tab group operations to serialize with syncTabGroup and disconnectEverything
-    tabGroupQueue = tabGroupQueue
-      .then(async () => {
-        // Query for playwriter group by title - no stale cached ID
-        const existingGroups = await chrome.tabGroups.query({ title: TAB_GROUP_TITLE })
-        const groupId = existingGroups[0]?.id
-        if (groupId === undefined) {
-          return
-        }
-        const { tabs } = store.getState()
-        if (changeInfo.groupId === groupId) {
-          if (!tabs.has(tabId) && !isRestrictedUrl(tab.url)) {
-            logger.debug('Tab manually added to playwriter group:', tabId)
-            await connectTab(tabId)
-          }
-        } else if (tabs.has(tabId)) {
-          const tabInfo = tabs.get(tabId)
-          if (tabInfo?.state === 'connecting') {
-            logger.debug('Tab removed from group while connecting, ignoring:', tabId)
-            return
-          }
-          logger.debug('Tab manually removed from playwriter group:', tabId)
-          await disconnectTab(tabId)
-        }
-      })
-      .catch((e) => {
-        logger.debug('onTabUpdated handler error:', e)
-      })
-  }
 })
 
 chrome.contextMenus?.onClicked.addListener(async (info, tab) => {

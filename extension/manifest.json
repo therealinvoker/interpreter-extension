@@ -6,7 +6,6 @@
   "permissions": [
     "debugger",
     "scripting",
-    "tabGroups",
     "contextMenus",
     "tabs",
     "windows"
