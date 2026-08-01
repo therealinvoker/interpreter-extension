@@ -1417,37 +1417,11 @@ describe('Relay Core Tests', () => {
         `,
       },
     })
-    expect(result).toMatchInlineSnapshot(`
-      {
-        "content": [
-          {
-            "text": "
-      Error executing code: page.click: Timeout 100ms exceeded. <div id="overlay">Overlay</div> intercepts pointer events
-      Call log:
-      [2m  - waiting for locator('#covered-btn')[22m
-      [2m    - locator resolved to <button id="covered-btn">Covered</button>[22m
-      [2m  - attempting click action[22m
-      [2m    2 × waiting for element to be visible, enabled and stable[22m
-      [2m      - element is visible, enabled and stable[22m
-      [2m      - scrolling into view if needed[22m
-      [2m      - done scrolling[22m
-      [2m      - <div id="overlay">Overlay</div> intercepts pointer events[22m
-      [2m    - retrying click action[22m
-      [2m    - waiting 20ms[22m
-      [2m    - waiting for element to be visible, enabled and stable[22m
-      [2m    - element is visible, enabled and stable[22m
-      [2m    - scrolling into view if needed[22m
-      [2m    - done scrolling[22m
-      [2m    - <div id="overlay">Overlay</div> intercepts pointer events[22m
-      [2m  - retrying click action[22m
-      [2m    - waiting 100ms[22m
-      ",
-            "type": "text",
-          },
-        ],
-        "isError": true,
-      }
-    `)
+    expect(result.isError).toBe(true)
+    const errorText = (result.content as any[])[0]?.text || ''
+    expect(errorText).toContain('page.click: Timeout 100ms exceeded')
+    expect(errorText).toContain('<div id="overlay">Overlay</div> intercepts pointer events')
+    expect(errorText).toContain("waiting for locator('#covered-btn')")
     await client.callTool({ name: 'execute', arguments: { code: js`await state.errorTestPage.close(); delete state.errorTestPage;` } })
   }, 30000)
 

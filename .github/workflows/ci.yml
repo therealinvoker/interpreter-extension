@@ -49,10 +49,9 @@ jobs:
         run: |
           node playwright/utils/generate_injected.js
           pnpm playwright:build
-      - name: Install Chrome for extension integration tests
+      - name: Install the pinned Chromium runtime
         run: |
-          sudo apt-get update
-          sudo apt-get install -y google-chrome-stable
+          node scripts/install-playwright-browsers.cjs --with-deps
       - name: Build Playwriter and the extension
         run: pnpm build
       - name: Run the Playwriter test suite

@@ -3,6 +3,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { chromium, type Page, type Browser } from '@xmorse/playwright-core'
+import { resolveBrowserExecutablePath } from './browser-config.js'
 
 const HTML = `<!DOCTYPE html>
 <html>
@@ -38,14 +39,17 @@ describe('Locator.selector()', () => {
   let page: Page
 
   beforeAll(async () => {
-    browser = await chromium.launch({ headless: true })
+    browser = await chromium.launch({
+      executablePath: resolveBrowserExecutablePath(),
+      headless: true,
+    })
     const context = await browser.newContext()
     page = await context.newPage()
     await page.setContent(HTML)
   })
 
   afterAll(async () => {
-    await browser.close()
+    await browser?.close()
   })
 
   it('CSS selectors', () => {
