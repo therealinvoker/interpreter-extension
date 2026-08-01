@@ -30,7 +30,6 @@ jobs:
           registry-url: https://registry.npmjs.org/
       - uses: pnpm/action-setup@v4
         with:
-          version: 10.18.1
           run_install: false
       - uses: oven-sh/setup-bun@v2
         with:
