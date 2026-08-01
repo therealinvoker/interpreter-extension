@@ -1,0 +1,15 @@
+Interpreter Chrome Extension
+
+This repository is an Interpreter-maintained derivative and distribution of
+Playwriter (https://github.com/remorses/playwriter).
+
+Playwriter and the included Playwriter source are distributed under the MIT
+License. The upstream copyright and license text are preserved in LICENSE.
+
+The specialized Playwright fork used by Playwriter remains a separately
+versioned Git submodule sourced from https://github.com/remorses/playwright.
+
+Interpreter-specific changes include product integration, extension and relay
+protocol behavior, packaging, branding, and release configuration. This notice
+does not replace the license or attribution files in separately distributed
+dependencies.

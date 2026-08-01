@@ -13,6 +13,20 @@
 
 Other browser MCPs spawn a fresh Chrome — no logins, no extensions, instantly flagged by bot detectors, double the memory. Interpreter Chrome Extension connects to **your running browser** instead. One Chrome extension, full Playwright API, everything you're already logged into.
 
+## Project lineage
+
+This repository is the Interpreter-maintained distribution of
+[Playwriter](https://github.com/remorses/playwriter). It preserves Playwriter's
+Git history, MIT license, copyright notice, package identity, and development
+workflow. Interpreter-specific extension, relay, protocol, and release changes
+are developed here; generally useful fixes should continue to be considered for
+upstream contribution.
+
+The repository also pins the Playwriter-maintained
+[Playwright fork](https://github.com/remorses/playwright) as a Git submodule.
+Clone with `--recurse-submodules`, or run `git submodule update --init` before
+building the fork. See [NOTICE](./NOTICE) for the public attribution boundary.
+
 ## Installation
 
 1. [**Install Extension**](https://chromewebstore.google.com/detail/playwriter-mcp/jfeammnjpkecdekppnclgkkffahnhfhe) from Chrome Web Store
