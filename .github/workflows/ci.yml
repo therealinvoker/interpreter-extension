@@ -49,6 +49,8 @@ jobs:
         run: |
           node playwright/utils/generate_injected.js
           pnpm playwright:build
+      - name: Install Chromium for extension integration tests
+        run: pnpm exec playwright install --with-deps chromium
       - name: Build Playwriter and the extension
         run: pnpm build
       - name: Run the Playwriter test suite
