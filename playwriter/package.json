@@ -1,7 +1,7 @@
 {
   "name": "playwriter",
   "description": "",
-  "version": "0.0.122",
+  "version": "0.0.123",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "mcp": "vite-node src/mcp.ts",
     "test": "vitest run -u",
+    "test:ci": "vitest run --no-file-parallelism",
     "test:watch": "vitest"
   },
   "bin": "./bin.js",

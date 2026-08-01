@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.102
+
+### Changes
+
+- **Validate the extension against pinned Chromium on macOS and Linux**: Test tooling now preserves the host color scheme and handles platform-specific screenshot pixel scaling without changing the relay protocol.
+
 ## 0.0.101
 
 ### Changes
@@ -10,7 +16,7 @@
 
 ### Changes
 
-- **Expose viewport screen bounds with page element inventory**: The private extension now reports the observed page viewport's screen bounds so Interpreter can map Chrome page element refs into overlay selection coordinates.
+- **Expose viewport screen bounds with page element inventory**: The extension now reports the observed page viewport's screen bounds so Interpreter can map Chrome page element refs into overlay selection coordinates.
 
 ## 0.0.99
 

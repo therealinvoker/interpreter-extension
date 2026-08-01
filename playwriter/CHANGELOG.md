@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.123
+
+1. **Browser integration tests now validate portable behavior** — the real-browser suite preserves the host color scheme, accepts platform-specific screenshot pixel scaling, and checks stable click-error semantics across macOS and Linux Chromium.
+
 ## 0.0.122
 
 1. **Browser skill removes shared-tab product wording** — agent instructions now describe extension-accessible live browser pages and claimed tabs instead of asking users to share tabs.

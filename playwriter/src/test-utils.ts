@@ -118,26 +118,35 @@ export async function setupTestContext({
   const extensionPath = path.resolve('../extension', distDir)
   const allExtensionPaths = [extensionPath, ...additionalExtensions].join(',')
   const browserPath = resolveBrowserExecutablePath()
+  console.log(`Launching extension test browser: ${browserPath}`)
 
-  const browserContext = await chromium.launchPersistentContext(userDataDir, {
-    executablePath: browserPath,
-    ignoreDefaultArgs: ['--disable-extensions'],
-    headless: !process.env.HEADFUL,
-    colorScheme: 'dark',
-    args: [`--disable-extensions-except=${allExtensionPaths}`, `--load-extension=${allExtensionPaths}`],
-  })
-
-  const serviceWorker = await getExtensionServiceWorker(browserContext)
-
-  if (toggleExtension) {
-    const page = await browserContext.newPage()
-    await page.goto('about:blank')
-    await serviceWorker.evaluate(async () => {
-      await (globalThis as any).toggleExtensionForActiveTab()
+  let browserContext: BrowserContext | null = null
+  try {
+    browserContext = await chromium.launchPersistentContext(userDataDir, {
+      executablePath: browserPath,
+      ignoreDefaultArgs: ['--disable-extensions'],
+      headless: !process.env.HEADFUL,
+      args: [`--disable-extensions-except=${allExtensionPaths}`, `--load-extension=${allExtensionPaths}`],
     })
-  }
 
-  return { browserContext, userDataDir, relayServer }
+    const serviceWorker = await getExtensionServiceWorker(browserContext)
+
+    if (toggleExtension) {
+      const page = await browserContext.newPage()
+      await page.goto('about:blank')
+      await serviceWorker.evaluate(async () => {
+        await (globalThis as any).toggleExtensionForActiveTab()
+      })
+    }
+
+    return { browserContext, userDataDir, relayServer }
+  } catch (error) {
+    await browserContext?.close().catch(() => {})
+    relayServer.close()
+    await killPortProcess({ port }).catch(() => {})
+    fs.rmSync(userDataDir, { recursive: true, force: true })
+    throw error
+  }
 }
 
 export async function cleanupTestContext(
