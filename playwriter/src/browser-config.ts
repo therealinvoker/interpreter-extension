@@ -250,7 +250,11 @@ export function getBrowserExecutableCandidates({
 
   const pathCandidates = getPathExecutableCandidates({ platform, env })
   return dedupePaths(
-    [...installedPlaywrightCacheCandidates, ...platformCandidates, ...pathCandidates, ...getPlaywrightChromiumCandidate()].map((filePath) => {
+    // Prefer the runtime resolved by this fork's pinned Playwright build over a
+    // system Chrome. Modern branded Chrome releases can ignore
+    // --load-extension, which makes the relay appear healthy while its MV3
+    // service worker never starts. CI installs this exact runtime first.
+    [...installedPlaywrightCacheCandidates, ...getPlaywrightChromiumCandidate(), ...platformCandidates, ...pathCandidates].map((filePath) => {
       return expandHomeDirectory({ filePath, homeDir })
     }),
   )

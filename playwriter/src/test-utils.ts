@@ -118,6 +118,7 @@ export async function setupTestContext({
   const extensionPath = path.resolve('../extension', distDir)
   const allExtensionPaths = [extensionPath, ...additionalExtensions].join(',')
   const browserPath = resolveBrowserExecutablePath()
+  console.log(`Launching extension test browser: ${browserPath}`)
 
   let browserContext: BrowserContext | null = null
   try {
