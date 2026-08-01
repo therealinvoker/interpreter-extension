@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.102
+
+### Changes
+
+- **Validate the extension against pinned Chromium on macOS and Linux**: Test tooling now preserves the host color scheme and handles platform-specific screenshot pixel scaling without changing the relay protocol.
+
 ## 0.0.101
 
 ### Changes
