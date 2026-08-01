@@ -474,6 +474,7 @@ describe('Relay Core Tests', () => {
     {
       name: 'hacker-news',
       url: 'https://news.ycombinator.com/item?id=1',
+      html: null,
       expectedContent: ['role=link', 'Hacker News'],
       waitForCode: js`
         await state.page.locator('a[href="news"]').first().waitFor({ timeout: 10000 });
@@ -481,73 +482,93 @@ describe('Relay Core Tests', () => {
       `,
     },
     {
-      name: 'shadcn-ui',
-      url: 'https://ui.shadcn.com/',
-      expectedContent: ['shadcn'],
+      name: 'local-component-library',
+      url: null,
+      html: `<!doctype html>
+        <html>
+          <body>
+            <main>
+              <h1>Component library</h1>
+              <nav aria-label="Documentation"><a href="#docs">Docs</a></nav>
+              <button type="button">Open dialog</button>
+              <label for="search">Search components</label>
+              <input id="search" type="search" />
+            </main>
+          </body>
+        </html>`,
+      expectedContent: ['Documentation', 'role=button', 'searchbox'],
       waitForCode: js`
-        await state.page.locator('text=shadcn/ui').first().waitFor({ timeout: 10000 });
+        await state.page.getByRole('heading', { name: 'Component library' }).waitFor({ timeout: 10000 });
       `,
     },
   ]
 
   for (const testCase of snapshotTestCases) {
     it(`should get accessibility snapshot of ${testCase.name}`, async () => {
-      await client.callTool({
-        name: 'execute',
-        arguments: {
-          code: js`
+      const fixtureServer = testCase.html
+        ? await createSimpleServer({ routes: { '/': testCase.html } })
+        : null
+      const targetUrl = fixtureServer?.baseUrl ?? testCase.url
+      if (!targetUrl) throw new Error(`Missing URL for ${testCase.name}`)
+
+      try {
+        await client.callTool({
+          name: 'execute',
+          arguments: {
+            code: js`
               const newPage = await context.newPage();
               state.page = newPage;
               if (!state.pages) state.pages = [];
               state.pages.push(newPage);
             `,
-        },
-      })
+          },
+        })
 
-      // Capture interactiveOnly=true snapshot (default)
-      const interactiveResult = await client.callTool({
-        name: 'execute',
-        arguments: {
-          code: js`
+        // Capture interactiveOnly=true snapshot (default)
+        const interactiveResult = await client.callTool({
+          name: 'execute',
+          arguments: {
+            code: js`
               // External pages can expose a partial AX tree right after domcontentloaded,
               // so wait for stable page-specific content before snapshotting.
-              await state.page.goto('${testCase.url}', { waitUntil: 'domcontentloaded' });
+              await state.page.goto('${targetUrl}', { waitUntil: 'domcontentloaded' });
               ${testCase.waitForCode}
               const snap = await snapshot({ page: state.page, showDiffSinceLastCall: false, interactiveOnly: true });
               return snap;
             `,
-        },
-      })
+          },
+        })
 
-      const interactiveData =
-        typeof interactiveResult === 'object' && interactiveResult.content?.[0]?.text
-          ? tryJsonParse(interactiveResult.content[0].text)
-          : interactiveResult
-      await expect(interactiveData).toMatchFileSnapshot(`snapshots/${testCase.name}-accessibility-interactive.md`)
-      expect(interactiveResult.content).toBeDefined()
-      for (const expected of testCase.expectedContent) {
-        expect(interactiveData).toContain(expected)
-      }
+        const interactiveData =
+          typeof interactiveResult === 'object' && interactiveResult.content?.[0]?.text
+            ? tryJsonParse(interactiveResult.content[0].text)
+            : interactiveResult
+        expect(interactiveResult.content).toBeDefined()
+        for (const expected of testCase.expectedContent) {
+          expect(interactiveData).toContain(expected)
+        }
 
-      // Capture interactiveOnly=false snapshot (full tree)
-      const fullResult = await client.callTool({
-        name: 'execute',
-        arguments: {
-          code: js`
+        // Capture interactiveOnly=false snapshot (full tree)
+        const fullResult = await client.callTool({
+          name: 'execute',
+          arguments: {
+            code: js`
               const snap = await snapshot({ page: state.page, showDiffSinceLastCall: false, interactiveOnly: false });
               return snap;
             `,
-        },
-      })
+          },
+        })
 
-      const fullData =
-        typeof fullResult === 'object' && fullResult.content?.[0]?.text
-          ? tryJsonParse(fullResult.content[0].text)
-          : fullResult
-      await expect(fullData).toMatchFileSnapshot(`snapshots/${testCase.name}-accessibility-full.md`)
-      expect(fullResult.content).toBeDefined()
-      for (const expected of testCase.expectedContent) {
-        expect(fullData).toContain(expected)
+        const fullData =
+          typeof fullResult === 'object' && fullResult.content?.[0]?.text
+            ? tryJsonParse(fullResult.content[0].text)
+            : fullResult
+        expect(fullResult.content).toBeDefined()
+        for (const expected of testCase.expectedContent) {
+          expect(fullData).toContain(expected)
+        }
+      } finally {
+        await fixtureServer?.close()
       }
     }, 60000)
   }

@@ -1334,41 +1334,49 @@ describe('Relay Navigation Tests', () => {
   }, 60000)
 
   it('should have non-empty URLs when connecting to already-loaded pages', async () => {
-    const _browserContext = getBrowserContext()
-    const serviceWorker = await getExtensionServiceWorker(_browserContext)
-
-    const page = await _browserContext.newPage()
-    await page.goto('https://discord.com/login', { waitUntil: 'load' })
-    await page.bringToFront()
-
-    await serviceWorker.evaluate(async () => {
-      await globalThis.toggleExtensionForActiveTab()
+    const browserContext = getBrowserContext()
+    const serviceWorker = await getExtensionServiceWorker(browserContext)
+    const server = await createSimpleServer({
+      routes: {
+        '/already-loaded': '<!doctype html><html><body><h1>Already loaded</h1></body></html>',
+      },
     })
+    const page = await browserContext.newPage()
 
-    const browser = await chromium.connectOverCDP(getCdpUrl({ port: TEST_PORT }))
-    const context = browser.contexts()[0]
+    try {
+      const expectedUrl = `${server.baseUrl}/already-loaded`
+      await page.goto(expectedUrl, { waitUntil: 'domcontentloaded' })
+      await page.bringToFront()
 
-    const pages = context.pages()
-    console.log(
-      'All page URLs:',
-      pages.map((p) => p.url()),
-    )
+      await serviceWorker.evaluate(async () => {
+        await globalThis.toggleExtensionForActiveTab()
+      })
 
-    expect(pages.length).toBeGreaterThan(0)
-    for (const p of pages) {
-      expect(p.url()).not.toBe('')
-      expect(p.url()).not.toBe(':')
-      expect(p.url()).not.toBeUndefined()
+      const browser = await chromium.connectOverCDP(getCdpUrl({ port: TEST_PORT }))
+      try {
+        const pages = browser.contexts()[0].pages()
+        console.log(
+          'All page URLs:',
+          pages.map((candidate) => candidate.url()),
+        )
+
+        expect(pages.length).toBeGreaterThan(0)
+        for (const candidate of pages) {
+          expect(candidate.url()).not.toBe('')
+          expect(candidate.url()).not.toBe(':')
+          expect(candidate.url()).not.toBeUndefined()
+        }
+
+        const loadedPage = pages.find((candidate) => candidate.url() === expectedUrl)
+        expect(loadedPage).toBeDefined()
+        expect(await loadedPage!.evaluate(() => window.location.href)).toBe(expectedUrl)
+      } finally {
+        await browser.close()
+      }
+    } finally {
+      await page.close()
+      await server.close()
     }
-
-    const discordPage = pages.find((p) => p.url().includes('discord.com'))
-    expect(discordPage).toBeDefined()
-
-    const result = await discordPage!.evaluate(() => window.location.href)
-    expect(result).toContain('discord.com')
-
-    await browser.close()
-    await page.close()
   }, 60000)
 
   it('should navigate to notion without hanging', async () => {

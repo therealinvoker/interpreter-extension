@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "mcp": "vite-node src/mcp.ts",
     "test": "vitest run -u",
+    "test:ci": "vitest run --no-file-parallelism",
     "test:watch": "vitest"
   },
   "bin": "./bin.js",

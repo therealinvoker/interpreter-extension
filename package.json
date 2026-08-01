@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "test": "pnpm --filter playwriter test",
+    "test:ci": "pnpm --filter playwriter test:ci",
     "watch": "pnpm -r watch",
     "format": "prettier --write .",
     "cli": "pnpm --filter playwriter cli",
