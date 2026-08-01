@@ -15,6 +15,8 @@ import {
 import './test-declarations.js'
 
 const TEST_PORT = 19992
+const NO_POLICY_TEST_PORT = 19993
+const MATRIX_POLICY_TEST_PORT = 19994
 const FIXTURE_EXTENSION_PATH = path.resolve('../extension/test-fixtures/fixture-extension')
 
 describe('Relay Navigation Tests', () => {
@@ -102,6 +104,1042 @@ describe('Relay Navigation Tests', () => {
       await server.close()
     }
   }, 15000)
+
+  it('should keep toggled pages out of controllable targets when no app policy is supplied', async () => {
+    let noPolicyCtx: TestContext | null = null
+    const server = await createSimpleServer({
+      routes: {
+        '/': '<!doctype html><html><body>blocked until policy</body></html>',
+      },
+    })
+
+    try {
+      noPolicyCtx = await setupTestContext({
+        port: NO_POLICY_TEST_PORT,
+        tempDirPrefix: 'pw-nav-no-policy-test-',
+        accessPolicy: null,
+      })
+      const serviceWorker = await getExtensionServiceWorker(noPolicyCtx.browserContext)
+      const page = await noPolicyCtx.browserContext.newPage()
+      await page.goto(server.baseUrl, { waitUntil: 'domcontentloaded' })
+      await page.bringToFront()
+
+      await serviceWorker.evaluate(async () => {
+        await globalThis.toggleExtensionForActiveTab()
+      })
+
+      const statusRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extension/status`)
+      expect(statusRes.status).toBe(200)
+      const statusJson = await statusRes.json() as {
+        activeTargets: number
+        targets: Array<{ url: string }>
+        browserTabs: { windows: Array<{ tabs: Array<{ url: string; controlState: 'observable' | 'controllable'; shared: boolean }> }> }
+      }
+      const inventoryTabs = statusJson.browserTabs.windows.flatMap((window) => window.tabs)
+      expect(statusJson.activeTargets).toBe(0)
+      expect(statusJson.targets).toEqual([])
+      expect(inventoryTabs.some((tab) => tab.url.startsWith(server.baseUrl))).toBe(false)
+
+      const extensionsStatusRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extensions/status`)
+      const extensionsStatusJson = await extensionsStatusRes.json() as {
+        extensions: Array<{
+          extensionId: string
+          stableKey?: string
+          browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string; active?: boolean }> }> }
+        }>
+      }
+      const extension = extensionsStatusJson.extensions[0]
+      const blockedTab = await serviceWorker.evaluate(async () => {
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
+        const tab = tabs[0]
+        return tab?.id ? { chromeTabId: tab.id, url: tab.url || '' } : null
+      })
+      expect(extension).toBeDefined()
+      expect(blockedTab).toBeDefined()
+
+      const pageElementsRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extension/page-elements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: blockedTab!.chromeTabId,
+        }),
+      })
+      expect(pageElementsRes.status).toBe(403)
+      await expect(pageElementsRes.json()).resolves.toMatchObject({
+        success: false,
+        error: expect.stringContaining('Interpreter browser settings blocked this request'),
+      })
+
+      const pageTraceRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extension/page-trace`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: blockedTab!.chromeTabId,
+          bounds: { x: 10, y: 10, width: 20, height: 20 },
+        }),
+      })
+      expect(pageTraceRes.status).toBe(403)
+      await expect(pageTraceRes.json()).resolves.toMatchObject({
+        success: false,
+        error: expect.stringContaining('Interpreter browser settings blocked this request'),
+      })
+
+      const pageClickRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extension/page-click`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: blockedTab!.chromeTabId,
+          refId: 'browser-element:blocked:0',
+        }),
+      })
+      expect(pageClickRes.status).toBe(403)
+      await expect(pageClickRes.json()).resolves.toMatchObject({
+        success: false,
+        error: expect.stringContaining('Interpreter browser settings blocked this request'),
+      })
+
+      const pageTypeRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extension/page-type`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: blockedTab!.chromeTabId,
+          refId: 'browser-element:blocked:0',
+          text: 'blocked',
+        }),
+      })
+      expect(pageTypeRes.status).toBe(403)
+      await expect(pageTypeRes.json()).resolves.toMatchObject({
+        success: false,
+        error: expect.stringContaining('Interpreter browser settings blocked this request'),
+      })
+
+      const pageSelectRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extension/page-select`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: blockedTab!.chromeTabId,
+          refId: 'browser-element:blocked:0',
+          value: 'blocked',
+        }),
+      })
+      expect(pageSelectRes.status).toBe(403)
+      await expect(pageSelectRes.json()).resolves.toMatchObject({
+        success: false,
+        error: expect.stringContaining('Interpreter browser settings blocked this request'),
+      })
+
+      const pageScrollRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extension/page-scroll`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: blockedTab!.chromeTabId,
+          deltaY: 200,
+        }),
+      })
+      expect(pageScrollRes.status).toBe(403)
+      await expect(pageScrollRes.json()).resolves.toMatchObject({
+        success: false,
+        error: expect.stringContaining('Interpreter browser settings blocked this request'),
+      })
+
+      const activateTabRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extension/activate-tab`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: blockedTab!.chromeTabId,
+        }),
+      })
+      expect(activateTabRes.status).toBe(200)
+      await expect(activateTabRes.json()).resolves.toMatchObject({ success: true })
+
+      const claimTabRes = await fetch(`http://127.0.0.1:${NO_POLICY_TEST_PORT}/extension/claim-tab`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: blockedTab!.chromeTabId,
+        }),
+      })
+      expect(claimTabRes.status).toBe(403)
+      await expect(claimTabRes.json()).resolves.toMatchObject({
+        success: false,
+        error: expect.stringContaining('Interpreter browser settings blocked this request'),
+      })
+    } finally {
+      await cleanupTestContext(noPolicyCtx)
+      await server.close()
+    }
+  }, 60000)
+
+  it('should enforce read write and action browser policy classes separately', async () => {
+    let matrixCtx: TestContext | null = null
+    const server = await createSimpleServer({
+      routes: {
+        '/': `<!doctype html>
+          <html>
+            <body>
+              <button id="run">Run</button>
+              <input id="name" aria-label="Name">
+              <select id="choice" aria-label="Choice"><option value="a">A</option><option value="b">B</option></select>
+            </body>
+          </html>`,
+      },
+    })
+
+    try {
+      matrixCtx = await setupTestContext({
+        port: MATRIX_POLICY_TEST_PORT,
+        tempDirPrefix: 'pw-nav-matrix-policy-test-',
+        accessPolicy: {
+          permissions: {
+            read: { mode: 'all', allowedPatterns: [] },
+            write: { mode: 'deny', allowedPatterns: [] },
+            action: { mode: 'deny', allowedPatterns: [] },
+          },
+          profilePolicies: [],
+        },
+      })
+      const serviceWorker = await getExtensionServiceWorker(matrixCtx.browserContext)
+      const page = await matrixCtx.browserContext.newPage()
+      await page.goto(server.baseUrl, { waitUntil: 'domcontentloaded' })
+      await page.bringToFront()
+
+      await serviceWorker.evaluate(async () => {
+        await globalThis.toggleExtensionForActiveTab()
+      })
+
+      const extensionsStatusRes = await fetch(`http://127.0.0.1:${MATRIX_POLICY_TEST_PORT}/extensions/status`)
+      expect(extensionsStatusRes.status).toBe(200)
+      const extensionsStatusJson = await extensionsStatusRes.json() as {
+        extensions: Array<{
+          extensionId: string
+          stableKey?: string
+          browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string }> }> }
+        }>
+      }
+      const extension = extensionsStatusJson.extensions.find((candidate) => {
+        return (candidate.browserTabs?.windows ?? []).some((window) => (
+          (window.tabs ?? []).some((tab) => tab.url.startsWith(server.baseUrl))
+        ))
+      })
+      const readableTab = extension?.browserTabs?.windows
+        ?.flatMap((window) => window.tabs ?? [])
+        .find((tab) => tab.url.startsWith(server.baseUrl))
+      expect(extension).toBeDefined()
+      expect(readableTab).toBeDefined()
+
+      const pageElementsRes = await fetch(`http://127.0.0.1:${MATRIX_POLICY_TEST_PORT}/extension/page-elements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: readableTab!.chromeTabId,
+        }),
+      })
+      expect(pageElementsRes.status).toBe(200)
+      await expect(pageElementsRes.json()).resolves.toMatchObject({ success: true })
+
+      const activateTabRes = await fetch(`http://127.0.0.1:${MATRIX_POLICY_TEST_PORT}/extension/activate-tab`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: readableTab!.chromeTabId,
+        }),
+      })
+      expect(activateTabRes.status).toBe(200)
+      await expect(activateTabRes.json()).resolves.toMatchObject({ success: true })
+
+      for (const endpoint of ['page-trace', 'page-click', 'page-scroll', 'claim-tab']) {
+        const body = endpoint === 'page-trace'
+          ? { chromeTabId: readableTab!.chromeTabId, bounds: { x: 10, y: 10, width: 20, height: 20 } }
+          : endpoint === 'page-click'
+            ? { chromeTabId: readableTab!.chromeTabId, refId: 'browser-element:blocked:0' }
+            : endpoint === 'page-scroll'
+              ? { chromeTabId: readableTab!.chromeTabId, deltaY: 200 }
+              : { chromeTabId: readableTab!.chromeTabId }
+        const res = await fetch(`http://127.0.0.1:${MATRIX_POLICY_TEST_PORT}/extension/${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            extensionId: extension!.stableKey || extension!.extensionId,
+            ...body,
+          }),
+        })
+        expect(res.status, endpoint).toBe(403)
+        await expect(res.json()).resolves.toMatchObject({
+          success: false,
+          error: expect.stringContaining('Interpreter browser settings blocked this request'),
+        })
+      }
+
+      for (const endpoint of ['page-type', 'page-select']) {
+        const res = await fetch(`http://127.0.0.1:${MATRIX_POLICY_TEST_PORT}/extension/${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            extensionId: extension!.stableKey || extension!.extensionId,
+            chromeTabId: readableTab!.chromeTabId,
+            refId: 'browser-element:blocked:0',
+            ...(endpoint === 'page-type' ? { text: 'blocked' } : { value: 'b' }),
+          }),
+        })
+        expect(res.status, endpoint).toBe(403)
+        await expect(res.json()).resolves.toMatchObject({
+          success: false,
+          error: expect.stringContaining('Interpreter browser settings blocked this request'),
+        })
+      }
+    } finally {
+      await cleanupTestContext(matrixCtx)
+      await server.close()
+    }
+  }, 60000)
+
+  it('should type into editable page element refs through the extension relay', async () => {
+    const browserContext = getBrowserContext()
+    const serviceWorker = await getExtensionServiceWorker(browserContext)
+    const server = await createSimpleServer({
+      routes: {
+        '/type-target': `<!doctype html>
+          <html>
+            <body>
+              <label for="name">Name</label>
+              <input id="name" aria-label="Full name" value="">
+              <div id="events">input:0 change:0</div>
+              <script>
+                let inputCount = 0;
+                let changeCount = 0;
+                const nameInput = document.getElementById('name');
+                const events = document.getElementById('events');
+                function render() {
+                  document.body.setAttribute('data-input-count', String(inputCount));
+                  document.body.setAttribute('data-change-count', String(changeCount));
+                  events.textContent = 'input:' + inputCount + ' change:' + changeCount;
+                }
+                nameInput.addEventListener('input', () => {
+                  inputCount += 1;
+                  document.body.setAttribute('data-last-input-value', nameInput.value);
+                  render();
+                });
+                nameInput.addEventListener('change', () => {
+                  changeCount += 1;
+                  document.body.setAttribute('data-last-change-value', nameInput.value);
+                  render();
+                });
+                render();
+              </script>
+            </body>
+          </html>`,
+      },
+    })
+    const page = await browserContext.newPage()
+
+    try {
+      await page.goto(`${server.baseUrl}/type-target`, { waitUntil: 'domcontentloaded' })
+      await page.bringToFront()
+
+      await serviceWorker.evaluate(async () => {
+        await globalThis.toggleExtensionForActiveTab()
+      })
+
+      const extensionsStatusRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extensions/status`)
+      expect(extensionsStatusRes.status).toBe(200)
+      const extensionsStatusJson = await extensionsStatusRes.json() as {
+        extensions: Array<{
+          extensionId: string
+          stableKey?: string
+          browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string; active?: boolean }> }> }
+        }>
+      }
+      const extension = extensionsStatusJson.extensions.find((candidate) => {
+        return (candidate.browserTabs?.windows ?? []).some((window) => {
+          return (window.tabs ?? []).some((tab) => tab.url === `${server.baseUrl}/type-target`)
+        })
+      })
+      const browserTab = extension?.browserTabs?.windows
+        ?.flatMap((window) => window.tabs ?? [])
+        .find((tab) => tab.url === `${server.baseUrl}/type-target`)
+      expect(extension).toBeDefined()
+      expect(browserTab).toBeDefined()
+
+      const elementInventoryRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-elements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          maxElements: 10,
+        }),
+      })
+      expect(elementInventoryRes.status).toBe(200)
+      const elementInventoryJson = await elementInventoryRes.json() as {
+        success: boolean
+        frames: Array<{
+          frameId: number
+          elements: Array<{
+            refId: string
+            name: string
+            value: string | null
+            editable: boolean
+            bounds: { x: number; y: number; width: number; height: number }
+          }>
+        }>
+      }
+      expect(elementInventoryJson.success).toBe(true)
+      const frame = elementInventoryJson.frames[0]
+      const input = frame.elements.find((element) => {
+        return element.name === 'Full name' && element.editable === true
+      })
+      expect(input).toBeDefined()
+
+      const typeRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-type`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          frameId: frame.frameId,
+          refId: input!.refId,
+          text: 'Ada Lovelace',
+          durationMs: 3_000,
+        }),
+      })
+      expect(typeRes.status).toBe(200)
+      await expect(typeRes.json()).resolves.toMatchObject({
+        success: true,
+        chromeTabId: browserTab!.chromeTabId,
+        frameId: frame.frameId,
+        refId: input!.refId,
+        value: 'Ada Lovelace',
+        bounds: input!.bounds,
+      })
+      await expect.poll(() => {
+        return page.locator('#name').inputValue()
+      }).toBe('Ada Lovelace')
+      await expect.poll(async () => {
+        return page.evaluate(() => ({
+          inputCount: document.body.getAttribute('data-input-count'),
+          changeCount: document.body.getAttribute('data-change-count'),
+          lastInputValue: document.body.getAttribute('data-last-input-value'),
+          lastChangeValue: document.body.getAttribute('data-last-change-value'),
+        }))
+      }).toEqual({
+        inputCount: '1',
+        changeCount: '1',
+        lastInputValue: 'Ada Lovelace',
+        lastChangeValue: 'Ada Lovelace',
+      })
+      await page.waitForFunction(() => {
+        return Boolean(document.getElementById('interpreter-browser-control-trace'))
+      }, null, { timeout: 5000 })
+
+      const staleTypeRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-type`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          frameId: frame.frameId,
+          refId: input!.refId,
+          text: 'Grace Hopper',
+        }),
+      })
+      expect(staleTypeRes.status).toBe(400)
+      await expect(staleTypeRes.json()).resolves.toMatchObject({
+        success: false,
+        error: 'refId is stale or not visible',
+      })
+    } finally {
+      await page.close()
+      await server.close()
+    }
+  }, 60000)
+
+  it('should expose selected page text through page element inventory', async () => {
+    const browserContext = getBrowserContext()
+    const serviceWorker = await getExtensionServiceWorker(browserContext)
+    const server = await createSimpleServer({
+      routes: {
+        '/selection-target': `<!doctype html>
+          <html>
+            <body>
+              <p id="source">Alpha selected browser text omega</p>
+              <button>Keep inventory non-empty</button>
+            </body>
+          </html>`,
+      },
+    })
+    const page = await browserContext.newPage()
+
+    try {
+      await page.goto(`${server.baseUrl}/selection-target`, { waitUntil: 'domcontentloaded' })
+      await page.bringToFront()
+      await page.evaluate(() => {
+        const source = document.getElementById('source')
+        if (!source) throw new Error('source missing')
+        const range = document.createRange()
+        range.selectNodeContents(source)
+        const selection = window.getSelection()
+        selection?.removeAllRanges()
+        selection?.addRange(range)
+      })
+
+      await serviceWorker.evaluate(async () => {
+        await globalThis.toggleExtensionForActiveTab()
+      })
+
+      const extensionsStatusRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extensions/status`)
+      expect(extensionsStatusRes.status).toBe(200)
+      const extensionsStatusJson = await extensionsStatusRes.json() as {
+        extensions: Array<{
+          extensionId: string
+          stableKey?: string
+          browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string }> }> }
+        }>
+      }
+      const extension = extensionsStatusJson.extensions.find((candidate) => {
+        return (candidate.browserTabs?.windows ?? []).some((window) => {
+          return (window.tabs ?? []).some((tab) => tab.url === `${server.baseUrl}/selection-target`)
+        })
+      })
+      const browserTab = extension?.browserTabs?.windows
+        ?.flatMap((window) => window.tabs ?? [])
+        .find((tab) => tab.url === `${server.baseUrl}/selection-target`)
+      expect(extension).toBeDefined()
+      expect(browserTab).toBeDefined()
+
+      const elementInventoryRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-elements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          maxElements: 10,
+        }),
+      })
+      expect(elementInventoryRes.status).toBe(200)
+      const elementInventoryJson = await elementInventoryRes.json() as {
+        success: boolean
+        frames: Array<{ selectionText?: string }>
+      }
+      expect(elementInventoryJson.success).toBe(true)
+      expect(elementInventoryJson.frames.some((frame) => frame.selectionText === 'Alpha selected browser text omega')).toBe(true)
+    } finally {
+      await page.close()
+      await server.close()
+    }
+  }, 15000)
+
+  it('should select page element options through the extension relay', async () => {
+    const browserContext = getBrowserContext()
+    const serviceWorker = await getExtensionServiceWorker(browserContext)
+    const server = await createSimpleServer({
+      routes: {
+        '/select-target': `<!doctype html>
+          <html>
+            <body>
+              <label for="team">Team</label>
+              <select id="team" aria-label="Team">
+                <option value="">Choose one</option>
+                <option value="operations">Operations</option>
+                <option value="support">Support</option>
+              </select>
+              <div id="events">input:0 change:0</div>
+              <script>
+                let inputCount = 0;
+                let changeCount = 0;
+                const teamSelect = document.getElementById('team');
+                const events = document.getElementById('events');
+                function render() {
+                  document.body.setAttribute('data-input-count', String(inputCount));
+                  document.body.setAttribute('data-change-count', String(changeCount));
+                  events.textContent = 'input:' + inputCount + ' change:' + changeCount;
+                }
+                teamSelect.addEventListener('input', () => {
+                  inputCount += 1;
+                  document.body.setAttribute('data-last-input-value', teamSelect.value);
+                  render();
+                });
+                teamSelect.addEventListener('change', () => {
+                  changeCount += 1;
+                  document.body.setAttribute('data-last-change-value', teamSelect.value);
+                  render();
+                });
+                render();
+              </script>
+            </body>
+          </html>`,
+      },
+    })
+    const page = await browserContext.newPage()
+
+    try {
+      await page.goto(`${server.baseUrl}/select-target`, { waitUntil: 'domcontentloaded' })
+      await page.bringToFront()
+
+      await serviceWorker.evaluate(async () => {
+        await globalThis.toggleExtensionForActiveTab()
+      })
+
+      const extensionsStatusRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extensions/status`)
+      expect(extensionsStatusRes.status).toBe(200)
+      const extensionsStatusJson = await extensionsStatusRes.json() as {
+        extensions: Array<{
+          extensionId: string
+          stableKey?: string
+          browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string; active?: boolean }> }> }
+        }>
+      }
+      const extension = extensionsStatusJson.extensions.find((candidate) => {
+        return (candidate.browserTabs?.windows ?? []).some((window) => {
+          return (window.tabs ?? []).some((tab) => tab.url === `${server.baseUrl}/select-target`)
+        })
+      })
+      const browserTab = extension?.browserTabs?.windows
+        ?.flatMap((window) => window.tabs ?? [])
+        .find((tab) => tab.url === `${server.baseUrl}/select-target`)
+      expect(extension).toBeDefined()
+      expect(browserTab).toBeDefined()
+
+      const elementInventoryRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-elements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          maxElements: 10,
+        }),
+      })
+      expect(elementInventoryRes.status).toBe(200)
+      const elementInventoryJson = await elementInventoryRes.json() as {
+        success: boolean
+        frames: Array<{
+          frameId: number
+          elements: Array<{
+            refId: string
+            name: string
+            value: string | null
+            tagName: string
+            bounds: { x: number; y: number; width: number; height: number }
+          }>
+        }>
+      }
+      expect(elementInventoryJson.success).toBe(true)
+      const frame = elementInventoryJson.frames[0]
+      const select = frame.elements.find((element) => {
+        return element.name === 'Team' && element.tagName === 'select'
+      })
+      expect(select).toBeDefined()
+
+      const selectRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-select`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          frameId: frame.frameId,
+          refId: select!.refId,
+          value: 'operations',
+          durationMs: 3_000,
+        }),
+      })
+      expect(selectRes.status).toBe(200)
+      await expect(selectRes.json()).resolves.toMatchObject({
+        success: true,
+        chromeTabId: browserTab!.chromeTabId,
+        frameId: frame.frameId,
+        refId: select!.refId,
+        value: 'operations',
+        bounds: select!.bounds,
+      })
+      await expect.poll(() => {
+        return page.locator('#team').inputValue()
+      }).toBe('operations')
+      await expect.poll(async () => {
+        return page.evaluate(() => ({
+          inputCount: document.body.getAttribute('data-input-count'),
+          changeCount: document.body.getAttribute('data-change-count'),
+          lastInputValue: document.body.getAttribute('data-last-input-value'),
+          lastChangeValue: document.body.getAttribute('data-last-change-value'),
+        }))
+      }).toEqual({
+        inputCount: '1',
+        changeCount: '1',
+        lastInputValue: 'operations',
+        lastChangeValue: 'operations',
+      })
+      await page.waitForFunction(() => {
+        return Boolean(document.getElementById('interpreter-browser-control-trace'))
+      }, null, { timeout: 5000 })
+
+      const staleSelectRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-select`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          frameId: frame.frameId,
+          refId: select!.refId,
+          value: 'support',
+        }),
+      })
+      expect(staleSelectRes.status).toBe(400)
+      await expect(staleSelectRes.json()).resolves.toMatchObject({
+        success: false,
+        error: 'refId is stale or not visible',
+      })
+    } finally {
+      await page.close()
+      await server.close()
+    }
+  }, 60000)
+
+  it('should scroll page frames through the extension relay', async () => {
+    const browserContext = getBrowserContext()
+    const serviceWorker = await getExtensionServiceWorker(browserContext)
+    const server = await createSimpleServer({
+      routes: {
+        '/scroll-target': `<!doctype html>
+          <html>
+            <body style="margin:0">
+              <div style="height:3200px; padding:20px">
+                <div id="nested-scroller" role="region" aria-label="Nested scroll area" style="height:120px; width:240px; overflow:auto; border:1px solid #ccc">
+                  <div style="height:700px; padding:8px">
+                    <button id="nested-button" style="margin-top:20px">Nested action</button>
+                  </div>
+                </div>
+                <div>Scroll target</div>
+              </div>
+              <script>
+                let scrollCount = 0;
+                window.addEventListener('scroll', () => {
+                  scrollCount += 1;
+                  document.body.setAttribute('data-scroll-count', String(scrollCount));
+                  document.body.setAttribute('data-scroll-y', String(Math.round(window.scrollY)));
+                });
+                document.body.setAttribute('data-scroll-count', '0');
+                document.body.setAttribute('data-scroll-y', '0');
+                const nestedScroller = document.getElementById('nested-scroller');
+                nestedScroller.addEventListener('scroll', () => {
+                  nestedScroller.setAttribute('data-scroll-y', String(Math.round(nestedScroller.scrollTop)));
+                });
+                nestedScroller.setAttribute('data-scroll-y', '0');
+              </script>
+            </body>
+          </html>`,
+      },
+    })
+    const page = await browserContext.newPage()
+
+    try {
+      await page.goto(`${server.baseUrl}/scroll-target`, { waitUntil: 'domcontentloaded' })
+      await page.bringToFront()
+
+      await serviceWorker.evaluate(async () => {
+        await globalThis.toggleExtensionForActiveTab()
+      })
+
+      const extensionsStatusRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extensions/status`)
+      expect(extensionsStatusRes.status).toBe(200)
+      const extensionsStatusJson = await extensionsStatusRes.json() as {
+        extensions: Array<{
+          extensionId: string
+          stableKey?: string
+          browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string }> }> }
+        }>
+      }
+      const extension = extensionsStatusJson.extensions.find((candidate) => {
+        return (candidate.browserTabs?.windows ?? []).some((window) => {
+          return (window.tabs ?? []).some((tab) => tab.url === `${server.baseUrl}/scroll-target`)
+        })
+      })
+      const browserTab = extension?.browserTabs?.windows
+        ?.flatMap((window) => window.tabs ?? [])
+        .find((tab) => tab.url === `${server.baseUrl}/scroll-target`)
+      expect(extension).toBeDefined()
+      expect(browserTab).toBeDefined()
+
+      const elementInventoryRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-elements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          frameId: 0,
+          maxElements: 20,
+        }),
+      })
+      expect(elementInventoryRes.status).toBe(200)
+      const elementInventoryJson = await elementInventoryRes.json() as {
+        success: boolean
+        frames: Array<{
+          frameId: number
+          elements: Array<{ refId: string; name: string }>
+        }>
+      }
+      expect(elementInventoryJson.success).toBe(true)
+      const nestedButton = elementInventoryJson.frames[0]?.elements.find((element) => element.name === 'Nested action')
+      expect(nestedButton).toBeDefined()
+
+      const nestedScrollRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-scroll`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          frameId: 0,
+          refId: nestedButton!.refId,
+          deltaY: 240,
+        }),
+      })
+      expect(nestedScrollRes.status).toBe(200)
+      await expect(nestedScrollRes.json()).resolves.toMatchObject({
+        success: true,
+        chromeTabId: browserTab!.chromeTabId,
+        frameId: 0,
+        refId: nestedButton!.refId,
+        scrollY: 240,
+      })
+      await expect.poll(() => {
+        return page.evaluate(() => ({
+          windowScrollY: Math.round(window.scrollY),
+          nestedScrollY: document.getElementById('nested-scroller')?.getAttribute('data-scroll-y'),
+        }))
+      }).toEqual({
+        windowScrollY: 0,
+        nestedScrollY: '240',
+      })
+
+      const traceRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-trace`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          frameId: 0,
+          bounds: { x: 20, y: 20, width: 120, height: 40 },
+          durationMs: 5_000,
+        }),
+      })
+      expect(traceRes.status).toBe(200)
+      await expect(traceRes.json()).resolves.toMatchObject({
+        success: true,
+        chromeTabId: browserTab!.chromeTabId,
+        frameId: 0,
+        bounds: { x: 20, y: 20, width: 120, height: 40 },
+      })
+      const traceBeforeScroll = await page.evaluate(() => {
+        const trace = document.getElementById('interpreter-browser-control-trace')
+        const rect = trace?.getBoundingClientRect()
+        return rect ? { x: Math.round(rect.x), y: Math.round(rect.y) } : null
+      })
+      expect(traceBeforeScroll).toEqual({ x: 20, y: 20 })
+
+      const scrollRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-scroll`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          frameId: 0,
+          deltaY: 700,
+        }),
+      })
+      expect(scrollRes.status).toBe(200)
+      await expect(scrollRes.json()).resolves.toMatchObject({
+        success: true,
+        chromeTabId: browserTab!.chromeTabId,
+        frameId: 0,
+        scrollY: expect.any(Number),
+        viewport: {
+          width: expect.any(Number),
+          height: expect.any(Number),
+        },
+      })
+      await expect.poll(() => {
+        return page.evaluate(() => ({
+          scrollY: Math.round(window.scrollY),
+          scrollCount: document.body.getAttribute('data-scroll-count'),
+          dataScrollY: document.body.getAttribute('data-scroll-y'),
+        }))
+      }).toEqual({
+        scrollY: 700,
+        scrollCount: '1',
+        dataScrollY: '700',
+      })
+      const traceAfterScroll = await page.evaluate(() => {
+        const trace = document.getElementById('interpreter-browser-control-trace')
+        const rect = trace?.getBoundingClientRect()
+        return rect ? { x: Math.round(rect.x), y: Math.round(rect.y) } : null
+      })
+      expect(traceAfterScroll).toEqual({ x: 20, y: -680 })
+    } finally {
+      await page.close()
+      await server.close()
+    }
+  }, 60000)
+
+  it('should click page element refs through the extension relay', async () => {
+    const browserContext = getBrowserContext()
+    const serviceWorker = await getExtensionServiceWorker(browserContext)
+    const server = await createSimpleServer({
+      routes: {
+        '/click-target': `<!doctype html>
+          <html>
+            <body>
+              <button id="count" aria-label="Increment count">Clicked 0</button>
+              <script>
+                let count = 0;
+                document.getElementById('count').addEventListener('click', () => {
+                  count += 1;
+                  document.getElementById('count').textContent = 'Clicked ' + count;
+                  document.body.setAttribute('data-click-count', String(count));
+                });
+              </script>
+            </body>
+          </html>`,
+      },
+    })
+    const page = await browserContext.newPage()
+    let foregroundPage: Page | null = null
+
+    try {
+      await page.goto(`${server.baseUrl}/click-target`, { waitUntil: 'domcontentloaded' })
+      await page.bringToFront()
+
+      await serviceWorker.evaluate(async () => {
+        await globalThis.toggleExtensionForActiveTab()
+      })
+
+      const extensionsStatusRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extensions/status`)
+      expect(extensionsStatusRes.status).toBe(200)
+      const extensionsStatusJson = await extensionsStatusRes.json() as {
+        extensions: Array<{
+          extensionId: string
+          stableKey?: string
+          browserTabs?: { windows?: Array<{ tabs?: Array<{ chromeTabId: number; url: string; active?: boolean }> }> }
+        }>
+      }
+      const extension = extensionsStatusJson.extensions.find((candidate) => {
+        return (candidate.browserTabs?.windows ?? []).some((window) => {
+          return (window.tabs ?? []).some((tab) => tab.url === `${server.baseUrl}/click-target`)
+        })
+      })
+      const browserTab = extension?.browserTabs?.windows
+        ?.flatMap((window) => window.tabs ?? [])
+        .find((tab) => tab.url === `${server.baseUrl}/click-target`)
+      expect(extension).toBeDefined()
+      expect(browserTab).toBeDefined()
+
+      const elementInventoryRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-elements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          maxElements: 10,
+        }),
+      })
+      expect(elementInventoryRes.status).toBe(200)
+      const elementInventoryJson = await elementInventoryRes.json() as {
+        success: boolean
+        frames: Array<{
+          frameId: number
+          elements: Array<{
+            refId: string
+            name: string
+            text: string
+            bounds: { x: number; y: number; width: number; height: number }
+          }>
+        }>
+      }
+      expect(elementInventoryJson.success).toBe(true)
+      const frame = elementInventoryJson.frames[0]
+      const button = frame.elements.find((element) => {
+        return element.name === 'Increment count' && element.text === 'Clicked 0'
+      })
+      expect(button).toBeDefined()
+
+      foregroundPage = await browserContext.newPage()
+      await foregroundPage.goto('https://example.com/?test=foreground-tab', { waitUntil: 'domcontentloaded' })
+      await foregroundPage.bringToFront()
+      await expect.poll(async () => {
+        const statusRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extensions/status`)
+        const statusJson = await statusRes.json() as typeof extensionsStatusJson
+        const tabs = statusJson.extensions.flatMap((candidate) => {
+          return (candidate.browserTabs?.windows ?? []).flatMap((window) => window.tabs ?? [])
+        })
+        return {
+          targetActive: tabs.find((tab) => tab.chromeTabId === browserTab!.chromeTabId)?.active,
+          foregroundActive: tabs.find((tab) => tab.url === 'https://example.com/?test=foreground-tab')?.active,
+        }
+      }).toEqual({
+        targetActive: false,
+        foregroundActive: true,
+      })
+
+      const clickRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-click`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          frameId: frame.frameId,
+          refId: button!.refId,
+          durationMs: 3_000,
+        }),
+      })
+      expect(clickRes.status).toBe(200)
+      await expect(clickRes.json()).resolves.toMatchObject({
+        success: true,
+        chromeTabId: browserTab!.chromeTabId,
+        frameId: frame.frameId,
+        refId: button!.refId,
+        bounds: button!.bounds,
+      })
+      await expect.poll(() => {
+        return page.locator('#count').textContent()
+      }).toBe('Clicked 1')
+      await expect.poll(() => {
+        return page.evaluate(() => ({
+          clickCount: document.body.getAttribute('data-click-count'),
+        }))
+      }).toEqual({
+        clickCount: '1',
+      })
+      await page.waitForFunction(() => {
+        return Boolean(document.getElementById('interpreter-browser-control-trace'))
+      }, null, { timeout: 5000 })
+
+      const staleClickRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-click`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extensionId: extension!.stableKey || extension!.extensionId,
+          chromeTabId: browserTab!.chromeTabId,
+          frameId: frame.frameId,
+          refId: button!.refId,
+        }),
+      })
+      expect(staleClickRes.status).toBe(400)
+      await expect(staleClickRes.json()).resolves.toMatchObject({
+        success: false,
+        error: 'refId is stale or not visible',
+      })
+    } finally {
+      await foregroundPage?.close()
+      await page.close()
+      await server.close()
+    }
+  }, 60000)
 
   it('should expose iframe frames when connecting to an existing page over CDP', async () => {
     const browserContext = getBrowserContext()
@@ -506,9 +1544,10 @@ describe('Relay Navigation Tests', () => {
   it('should expose CDP discovery endpoints /json/version and /json/list', async () => {
     const browserContext = getBrowserContext()
     const serviceWorker = await getExtensionServiceWorker(browserContext)
+    const discoveryUrl = 'https://example.com/?test=cdp-discovery-endpoints'
 
     const page = await browserContext.newPage()
-    await page.goto('https://example.com')
+    await page.goto(discoveryUrl)
     await page.bringToFront()
 
     await serviceWorker.evaluate(async () => {
@@ -541,12 +1580,12 @@ describe('Relay Navigation Tests', () => {
     expect(Array.isArray(listJson)).toBe(true)
     expect(listJson.length).toBeGreaterThan(0)
 
-    const examplePage = listJson.find((t) => t.url?.includes('example.com'))
+    const examplePage = listJson.find((t) => t.url?.includes(discoveryUrl))
     expect(examplePage).toBeDefined()
     expect(examplePage).toMatchObject({
       id: expect.any(String),
       type: 'page',
-      url: expect.stringContaining('example.com'),
+      url: discoveryUrl,
       webSocketDebuggerUrl: expect.stringContaining('ws://'),
     })
 
@@ -560,6 +1599,10 @@ describe('Relay Navigation Tests', () => {
     const putRes = await fetch(`http://127.0.0.1:${TEST_PORT}/json/version`, { method: 'PUT' })
     expect(putRes.status).toBe(200)
 
+    const unsharedPage = await browserContext.newPage()
+    await unsharedPage.goto('https://example.com/?test=unshared-tab-inventory')
+    await page.bringToFront()
+
     const extensionsStatusRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extensions/status`)
     expect(extensionsStatusRes.status).toBe(200)
     const extensionsStatusJson = (await extensionsStatusRes.json()) as {
@@ -567,6 +1610,23 @@ describe('Relay Navigation Tests', () => {
         extensionId: string
         stableKey?: string
         targets?: Array<{ title: string; url: string; type: string }>
+        browserTabs?: {
+          windows?: Array<{
+            windowId: number
+            focused: boolean
+            tabs?: Array<{
+              chromeTabId: number
+              windowId: number
+              active: boolean
+              title: string
+              url: string
+              controlState: 'observable' | 'controllable'
+              controlStateDetail?: string
+              shared: boolean
+              targetId?: string
+            }>
+          }>
+        }
       }>
     }
     expect(extensionsStatusJson.extensions.length).toBeGreaterThan(0)
@@ -578,6 +1638,223 @@ describe('Relay Navigation Tests', () => {
       }),
     ).toBe(true)
 
+    const browserTabs = extensionsStatusJson.extensions.flatMap((extension) => {
+      return (extension.browserTabs?.windows ?? []).flatMap((window) => window.tabs ?? [])
+    })
+    const sharedBrowserTab = browserTabs.find((tab) => tab.url === discoveryUrl)
+    const unsharedBrowserTab = browserTabs.find((tab) => tab.url.includes('unshared-tab-inventory'))
+    expect(sharedBrowserTab).toMatchObject({
+      chromeTabId: expect.any(Number),
+      windowId: expect.any(Number),
+      shared: true,
+      controlState: 'controllable',
+      controlStateDetail: expect.any(String),
+      targetId: expect.any(String),
+    })
+    expect(unsharedBrowserTab).toMatchObject({
+      chromeTabId: expect.any(Number),
+      windowId: expect.any(Number),
+      shared: false,
+      controlState: 'observable',
+    })
+
+    const extensionWithUnsharedTab = extensionsStatusJson.extensions.find((extension) => {
+      return (extension.browserTabs?.windows ?? []).some((window) => {
+        return (window.tabs ?? []).some((tab) => tab.chromeTabId === unsharedBrowserTab!.chromeTabId)
+      })
+    })
+    expect(extensionWithUnsharedTab).toBeDefined()
+
+    const activateRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/activate-tab`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: extensionWithUnsharedTab!.stableKey || extensionWithUnsharedTab!.extensionId,
+        chromeTabId: unsharedBrowserTab!.chromeTabId,
+        windowId: unsharedBrowserTab!.windowId,
+      }),
+    })
+    expect(activateRes.status).toBe(200)
+    await expect(activateRes.json()).resolves.toMatchObject({ success: true })
+
+    const activatedStatusRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extensions/status`)
+    expect(activatedStatusRes.status).toBe(200)
+    const activatedStatusJson = (await activatedStatusRes.json()) as typeof extensionsStatusJson
+    const activatedTabs = activatedStatusJson.extensions.flatMap((extension) => {
+      return (extension.browserTabs?.windows ?? []).flatMap((window) => window.tabs ?? [])
+    })
+    expect(activatedTabs.find((tab) => tab.chromeTabId === unsharedBrowserTab!.chromeTabId)).toMatchObject({
+      active: true,
+      shared: false,
+      controlState: 'observable',
+    })
+
+    const claimTabRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/claim-tab`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: extensionWithUnsharedTab!.stableKey || extensionWithUnsharedTab!.extensionId,
+        chromeTabId: unsharedBrowserTab!.chromeTabId,
+      }),
+    })
+    expect(claimTabRes.status).toBe(200)
+    const claimTabJson = await claimTabRes.json() as {
+      success: boolean
+      chromeTabId: number
+      targetId: string
+      sessionId: string
+    }
+    expect(claimTabJson).toMatchObject({
+      success: true,
+      chromeTabId: unsharedBrowserTab!.chromeTabId,
+      targetId: expect.any(String),
+      sessionId: expect.any(String),
+    })
+
+    const claimedStatusRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extensions/status`)
+    expect(claimedStatusRes.status).toBe(200)
+    const claimedStatusJson = (await claimedStatusRes.json()) as typeof extensionsStatusJson
+    const claimedTabs = claimedStatusJson.extensions.flatMap((extension) => {
+      return (extension.browserTabs?.windows ?? []).flatMap((window) => window.tabs ?? [])
+    })
+    expect(claimedTabs.find((tab) => tab.chromeTabId === unsharedBrowserTab!.chromeTabId)).toMatchObject({
+      shared: true,
+      controlState: 'controllable',
+      controlStateDetail: expect.any(String),
+      targetId: claimTabJson.targetId,
+    })
+
+    const claimedBrowser = await chromium.connectOverCDP(
+      getCdpUrl({
+        port: TEST_PORT,
+        extensionId: extensionWithUnsharedTab!.stableKey || extensionWithUnsharedTab!.extensionId,
+      }),
+    )
+    const claimedPages = claimedBrowser.contexts().flatMap((context) => context.pages())
+    expect(claimedPages.some((candidate) => candidate.url().includes('unshared-tab-inventory'))).toBe(true)
+    await safeCloseCDPBrowser(claimedBrowser)
+
+    const elementInventoryRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-elements`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: extensionWithUnsharedTab!.stableKey || extensionWithUnsharedTab!.extensionId,
+        chromeTabId: sharedBrowserTab!.chromeTabId,
+        maxElements: 10,
+      }),
+    })
+    expect(elementInventoryRes.status).toBe(200)
+    const elementInventoryJson = await elementInventoryRes.json() as {
+      success: boolean
+      chromeTabId: number
+      frames: Array<{
+        frameId: number
+        url: string
+        documentRevision: string
+        viewport: {
+          width: number
+          height: number
+          scrollX: number
+          scrollY: number
+          devicePixelRatio: number
+          screenBounds: { x: number; y: number; width: number; height: number } | null
+        }
+        elements: Array<{
+          refId: string
+          role: string
+          bounds: { x: number; y: number; width: number; height: number }
+        }>
+      }>
+    }
+    expect(elementInventoryJson.success).toBe(true)
+    expect(elementInventoryJson.chromeTabId).toBe(sharedBrowserTab!.chromeTabId)
+    expect(elementInventoryJson.frames.length).toBeGreaterThan(0)
+    expect(elementInventoryJson.frames[0]).toMatchObject({
+      frameId: expect.any(Number),
+      url: expect.stringContaining('example.com'),
+      documentRevision: expect.any(String),
+      viewport: {
+        width: expect.any(Number),
+        height: expect.any(Number),
+        scrollX: expect.any(Number),
+        scrollY: expect.any(Number),
+        devicePixelRatio: expect.any(Number),
+        screenBounds: expect.objectContaining({
+          x: expect.any(Number),
+          y: expect.any(Number),
+          width: expect.any(Number),
+          height: expect.any(Number),
+        }),
+      },
+    })
+    expect(elementInventoryJson.frames[0].elements.length).toBeLessThanOrEqual(10)
+    expect(elementInventoryJson.frames[0].elements.every((element) => {
+      return element.refId.startsWith(`browser-element:${elementInventoryJson.frames[0].documentRevision}:`)
+        && Number.isFinite(element.bounds.x)
+        && element.bounds.width > 0
+        && element.bounds.height > 0
+    })).toBe(true)
+    const traceTarget = elementInventoryJson.frames[0].elements[0]
+    expect(traceTarget).toBeDefined()
+
+    const pageTraceRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-trace`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: extensionWithUnsharedTab!.stableKey || extensionWithUnsharedTab!.extensionId,
+        chromeTabId: sharedBrowserTab!.chromeTabId,
+        frameId: elementInventoryJson.frames[0].frameId,
+        refId: traceTarget!.refId,
+        durationMs: 3_000,
+      }),
+    })
+    expect(pageTraceRes.status).toBe(200)
+    await expect(pageTraceRes.json()).resolves.toMatchObject({
+      success: true,
+      chromeTabId: sharedBrowserTab!.chromeTabId,
+      frameId: elementInventoryJson.frames[0].frameId,
+      refId: traceTarget!.refId,
+      bounds: traceTarget!.bounds,
+    })
+    await page.waitForFunction(() => {
+      return Boolean(document.getElementById('interpreter-browser-control-trace'))
+    }, null, { timeout: 5000 })
+    const traceBox = await page.evaluate(() => {
+      const trace = document.getElementById('interpreter-browser-control-trace')
+      if (!trace) return null
+      const rect = trace.getBoundingClientRect()
+      return {
+        ariaHidden: trace.getAttribute('aria-hidden'),
+        pointerEvents: window.getComputedStyle(trace).pointerEvents,
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      }
+    })
+    expect(traceBox).toEqual({
+      ariaHidden: 'true',
+      pointerEvents: 'none',
+      ...traceTarget!.bounds,
+    })
+
+    const staleTraceRes = await fetch(`http://127.0.0.1:${TEST_PORT}/extension/page-trace`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: extensionWithUnsharedTab!.stableKey || extensionWithUnsharedTab!.extensionId,
+        chromeTabId: sharedBrowserTab!.chromeTabId,
+        frameId: elementInventoryJson.frames[0].frameId,
+        refId: `${traceTarget!.refId}-stale`,
+      }),
+    })
+    expect(staleTraceRes.status).toBe(400)
+    await expect(staleTraceRes.json()).resolves.toMatchObject({
+      success: false,
+      error: 'refId is stale or not visible',
+    })
+
+    await unsharedPage.close()
     await page.close()
   }, 60000)
 
@@ -769,12 +2046,12 @@ describe('Relay Navigation Tests', () => {
       })
 
       // Must not fail with extension routing error — the command must reach Chrome.
-      // Chrome returns "No session with given id" because pw-tab-* is a virtual session
-      // managed by the relay, not a real Chrome CDP session. This is expected — the key
-      // proof is that the extension routed the command to Chrome instead of throwing
-      // "No tab found" at the routing layer.
+      // Chrome rejects pw-tab-* because it is a virtual session managed by the relay,
+      // not a real Chrome CDP session. The exact Chrome error varies by browser build.
+      // The key proof is that the extension routed the command to Chrome instead of
+      // throwing "No tab found" at the routing layer.
       expect(detachResult.error?.message).not.toContain('No tab found')
-      expect(detachResult.error?.message).toContain('No session with given id')
+      expect(detachResult.error?.message).toMatch(/No session with given id|Not allowed/)
 
       ws.close()
     } finally {

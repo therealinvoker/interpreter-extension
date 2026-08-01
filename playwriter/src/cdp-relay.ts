@@ -27,6 +27,7 @@ import * as relayState from './relay-state.js'
 import {
   doesBrowserAccessPolicyAllowUrl,
   formatBrowserAccessPolicyErrorMessage,
+  type BrowserAccessPermissionKind,
   type BrowserAccessPolicy,
 } from './browser-access-policy.js'
 
@@ -74,6 +75,7 @@ export async function startPlayWriterCDPRelayServer({
   token,
   logger,
   cdpLogger,
+  enableCliRoutes = false,
   getAccessPolicy,
 }: {
   port?: number
@@ -81,6 +83,7 @@ export async function startPlayWriterCDPRelayServer({
   token?: string
   logger?: { log(...args: any[]): void; error(...args: any[]): void }
   cdpLogger?: CdpLogger
+  enableCliRoutes?: boolean
   getAccessPolicy?: () => BrowserAccessPolicy
 } = {}): Promise<RelayServer> {
   const emitter = new EventEmitter()
@@ -101,24 +104,30 @@ export async function startPlayWriterCDPRelayServer({
     return getAccessPolicy?.() ?? null
   }
 
-  const isTargetAllowedByPolicy = (targetInfo: Protocol.Target.TargetInfo): boolean => {
+  const isTargetAllowedByPolicy = (
+    targetInfo: Protocol.Target.TargetInfo,
+    policyProfileId?: string | null,
+    permissionKind: BrowserAccessPermissionKind = 'read',
+  ): boolean => {
     const currentPolicy = getCurrentAccessPolicy()
-    if (!currentPolicy || currentPolicy.mode === 'all') {
-      return true
-    }
     if (!targetInfo.url) {
       return false
     }
-    return doesBrowserAccessPolicyAllowUrl(currentPolicy, targetInfo.url)
+    return doesBrowserAccessPolicyAllowUrl(currentPolicy, targetInfo.url, policyProfileId, permissionKind)
   }
 
-  const isTargetVisibleToPlaywright = (targetInfo: Protocol.Target.TargetInfo): boolean => {
-    return !isRestrictedTarget(targetInfo) && isTargetAllowedByPolicy(targetInfo)
+  const isTargetVisibleToPlaywright = (
+    targetInfo: Protocol.Target.TargetInfo,
+    policyProfileId?: string | null,
+  ): boolean => {
+    return !isRestrictedTarget(targetInfo) && isTargetAllowedByPolicy(targetInfo, policyProfileId, 'read')
   }
 
   const getBlockedSessionTarget = (
     connectedTargets: Map<string, relayState.ConnectedTarget>,
     currentSessionId: string | undefined,
+    policyProfileId?: string | null,
+    permissionKind: BrowserAccessPermissionKind = 'read',
   ): relayState.ConnectedTarget | null => {
     if (!currentSessionId) {
       return null
@@ -127,23 +136,24 @@ export async function startPlayWriterCDPRelayServer({
     if (!target) {
       return null
     }
-    return isTargetAllowedByPolicy(target.targetInfo) ? null : target
+    return isTargetAllowedByPolicy(target.targetInfo, policyProfileId, permissionKind) ? null : target
   }
 
   const assertAllowedUrlForPolicy = ({
     attemptedUrl,
     action,
     currentUrl,
+    policyProfileId,
+    permissionKind = 'read',
   }: {
     attemptedUrl: string
     action: 'open' | 'navigate' | 'use'
     currentUrl?: string | null
+    policyProfileId?: string | null
+    permissionKind?: BrowserAccessPermissionKind
   }): void => {
     const currentPolicy = getCurrentAccessPolicy()
-    if (!currentPolicy || currentPolicy.mode === 'all') {
-      return
-    }
-    if (doesBrowserAccessPolicyAllowUrl(currentPolicy, attemptedUrl)) {
+    if (doesBrowserAccessPolicyAllowUrl(currentPolicy, attemptedUrl, policyProfileId, permissionKind)) {
       return
     }
     throw new Error(
@@ -152,6 +162,7 @@ export async function startPlayWriterCDPRelayServer({
         attemptedUrl,
         action,
         currentUrl,
+        permissionKind,
       }),
     )
   }
@@ -270,6 +281,183 @@ export async function startPlayWriterCDPRelayServer({
       resolve()
     }
     runtimeEnableWaiters.delete(event.sessionId)
+  }
+
+  type BrowserTabInventory = {
+    windows: Array<{
+      windowId: number
+      focused: boolean
+      type: string
+      state: string
+      tabs: Array<{
+        chromeTabId: number
+        windowId: number
+        index: number
+        active: boolean
+        highlighted: boolean
+        pinned: boolean
+        title: string
+        url: string
+        status: string
+        controlState?: 'observable' | 'controllable'
+        controlStateDetail?: string
+        shared: boolean
+        shareState?: string
+        targetId?: string
+        sessionId?: string
+      }>
+    }>
+  }
+
+  type PageElementInventory = {
+    success: boolean
+    error?: string
+    chromeTabId?: number
+    frames?: Array<{
+      frameId: number
+      url: string
+      documentRevision: string
+      viewport: {
+        width: number
+        height: number
+        scrollX: number
+        scrollY: number
+        devicePixelRatio: number
+        screenBounds?: {
+          x: number
+          y: number
+          width: number
+          height: number
+        } | null
+      }
+      selectionText?: string
+      elements: Array<{
+        refId: string
+        index: number
+        tagName: string
+        role: string
+        name: string
+        text: string
+        value: string | null
+        inputType: string | null
+        checked: boolean | null
+        disabled: boolean
+        editable: boolean
+        clickable: boolean
+        bounds: {
+          x: number
+          y: number
+          width: number
+          height: number
+        }
+      }>
+    }>
+  }
+
+  type PageTraceResult = {
+    success: boolean
+    error?: string
+    chromeTabId?: number
+    frameId?: number
+    refId?: string | null
+    bounds?: {
+      x: number
+      y: number
+      width: number
+      height: number
+    }
+  }
+
+  type PageClickResult = {
+    success: boolean
+    error?: string
+    chromeTabId?: number
+    frameId?: number
+    refId?: string
+    bounds?: {
+      x: number
+      y: number
+      width: number
+      height: number
+    }
+  }
+
+  type PageTypeResult = {
+    success: boolean
+    error?: string
+    chromeTabId?: number
+    frameId?: number
+    refId?: string
+    value?: string
+    bounds?: {
+      x: number
+      y: number
+      width: number
+      height: number
+    }
+  }
+
+  type PageSelectResult = {
+    success: boolean
+    error?: string
+    chromeTabId?: number
+    frameId?: number
+    refId?: string
+    value?: string
+    bounds?: {
+      x: number
+      y: number
+      width: number
+      height: number
+    }
+  }
+
+  type PageScrollResult = {
+    success: boolean
+    error?: string
+    chromeTabId?: number
+    frameId?: number
+    refId?: string
+    scrollX?: number
+    scrollY?: number
+    viewport?: {
+      width: number
+      height: number
+    }
+  }
+
+  async function getBrowserTabInventory(extensionId: string): Promise<BrowserTabInventory> {
+    try {
+      const result = await sendToExtension({
+        extensionId,
+        method: 'listBrowserTabs',
+        timeout: 5_000,
+      })
+      if (!result || typeof result !== 'object' || !Array.isArray((result as { windows?: unknown }).windows)) {
+        return { windows: [] }
+      }
+      return result as BrowserTabInventory
+    } catch (error) {
+      logger?.error('Failed to list browser tabs:', error)
+      return { windows: [] }
+    }
+  }
+
+  function filterBrowserTabInventoryByPolicy(
+    inventory: BrowserTabInventory,
+    policyProfileId: string | null | undefined,
+    permissionKind: BrowserAccessPermissionKind,
+  ): BrowserTabInventory {
+    return {
+      windows: inventory.windows
+        .map((window) => ({
+          ...window,
+          tabs: window.tabs.filter((tab) => (
+            doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), tab.url, policyProfileId, permissionKind)
+          )),
+        }))
+        .filter((window) => window.tabs.length > 0),
+    }
   }
 
   const getPageTargetForFrameId = ({
@@ -715,7 +903,16 @@ export async function startPlayWriterCDPRelayServer({
     const conn = getExtensionConnection(extensionId)
     const connectedTargets = conn?.connectedTargets || new Map<string, relayState.ConnectedTarget>()
     const resolvedExtensionId = conn?.id || extensionId
-    const blockedSessionTarget = getBlockedSessionTarget(connectedTargets, sessionId)
+    const policyProfileId = conn?.stableKey ?? conn?.id ?? extensionId
+    const sessionPermissionKind: BrowserAccessPermissionKind = method === 'Page.navigate'
+      ? 'write'
+      : 'action'
+    const blockedSessionTarget = getBlockedSessionTarget(
+      connectedTargets,
+      sessionId,
+      policyProfileId,
+      sessionPermissionKind,
+    )
 
     if (blockedSessionTarget && method !== 'Page.navigate' && method !== 'Target.detachFromTarget') {
       throw new Error(
@@ -724,6 +921,7 @@ export async function startPlayWriterCDPRelayServer({
           attemptedUrl: blockedSessionTarget.targetInfo.url || 'this page',
           action: 'use',
           currentUrl: blockedSessionTarget.targetInfo.url || null,
+          permissionKind: sessionPermissionKind,
         }),
       )
     }
@@ -787,13 +985,14 @@ export async function startPlayWriterCDPRelayServer({
 
         for (const target of connectedTargets.values()) {
           if (target.targetId === attachParams.targetId) {
-            if (!isTargetVisibleToPlaywright(target.targetInfo)) {
+            if (isRestrictedTarget(target.targetInfo) || !isTargetAllowedByPolicy(target.targetInfo, policyProfileId, 'action')) {
               throw new Error(
                 formatBrowserAccessPolicyErrorMessage({
                   policy: getCurrentAccessPolicy(),
                   attemptedUrl: target.targetInfo.url || 'this page',
                   action: 'use',
                   currentUrl: target.targetInfo.url || null,
+                  permissionKind: 'action',
                 }),
               )
             }
@@ -811,13 +1010,14 @@ export async function startPlayWriterCDPRelayServer({
         if (targetId) {
           for (const target of connectedTargets.values()) {
             if (target.targetId === targetId) {
-              if (!isTargetVisibleToPlaywright(target.targetInfo)) {
+              if (!isTargetVisibleToPlaywright(target.targetInfo, policyProfileId)) {
                 throw new Error(
                   formatBrowserAccessPolicyErrorMessage({
                     policy: getCurrentAccessPolicy(),
                     attemptedUrl: target.targetInfo.url || 'this page',
                     action: 'use',
                     currentUrl: target.targetInfo.url || null,
+                    permissionKind: 'read',
                   }),
                 )
               }
@@ -833,14 +1033,16 @@ export async function startPlayWriterCDPRelayServer({
           }
         }
 
-        const firstTarget = Array.from(connectedTargets.values()).find((target) => isTargetVisibleToPlaywright(target.targetInfo))
+        const firstTarget = Array.from(connectedTargets.values()).find((target) => (
+          isTargetVisibleToPlaywright(target.targetInfo, policyProfileId)
+        ))
         return { targetInfo: firstTarget?.targetInfo }
       }
 
       case 'Target.getTargets': {
         return {
           targetInfos: Array.from(connectedTargets.values())
-            .filter((t) => isTargetVisibleToPlaywright(t.targetInfo))
+            .filter((t) => isTargetVisibleToPlaywright(t.targetInfo, policyProfileId))
             .map((t) => ({
               ...t.targetInfo,
               attached: true,
@@ -854,6 +1056,8 @@ export async function startPlayWriterCDPRelayServer({
         assertAllowedUrlForPolicy({
           attemptedUrl: targetUrl,
           action: 'open',
+          policyProfileId,
+          permissionKind: 'write',
         })
         return await sendToExtension({
           extensionId: resolvedExtensionId,
@@ -863,6 +1067,17 @@ export async function startPlayWriterCDPRelayServer({
       }
 
       case 'Target.closeTarget': {
+        const closeTargetParams = params as Protocol.Target.CloseTargetRequest | undefined
+        const target = Array.from(connectedTargets.values()).find((entry) => entry.targetId === closeTargetParams?.targetId)
+        if (target) {
+          assertAllowedUrlForPolicy({
+            attemptedUrl: target.targetInfo.url || 'this page',
+            action: 'use',
+            currentUrl: target.targetInfo.url || null,
+            policyProfileId,
+            permissionKind: 'action',
+          })
+        }
         return await sendToExtension({
           extensionId: resolvedExtensionId,
           method: 'forwardCDPCommand',
@@ -950,6 +1165,8 @@ export async function startPlayWriterCDPRelayServer({
           attemptedUrl: destinationUrl,
           action: 'navigate',
           currentUrl: blockedSessionTarget?.targetInfo.url || connectedTargets.get(sessionId || '')?.targetInfo.url || null,
+          policyProfileId,
+          permissionKind: 'write',
         })
         return await sendToExtension({
           extensionId: resolvedExtensionId,
@@ -1018,12 +1235,12 @@ export async function startPlayWriterCDPRelayServer({
     return c.json({ version: VERSION })
   })
 
-  app.get('/extension/status', (c) => {
+  app.get('/extension/status', async (c) => {
     const defaultExtension = getExtensionConnection(null, { allowFallback: true })
     const connected = store.getState().extensions.size > 0
     const visibleTargets = defaultExtension
       ? Array.from(defaultExtension.connectedTargets.values())
-          .filter((target) => isTargetVisibleToPlaywright(target.targetInfo))
+          .filter((target) => isTargetVisibleToPlaywright(target.targetInfo, defaultExtension.stableKey))
       : []
     const activeTargets = visibleTargets.length
     const info = defaultExtension?.info
@@ -1034,6 +1251,13 @@ export async function startPlayWriterCDPRelayServer({
           url: target.targetInfo.url || '',
           shareSource: target.shareSource || null,
         }))
+    const browserTabs = defaultExtension
+      ? filterBrowserTabInventoryByPolicy(
+        await getBrowserTabInventory(defaultExtension.id),
+        defaultExtension.stableKey,
+        'read',
+      )
+      : { windows: [] }
 
     return c.json({
       connected,
@@ -1041,13 +1265,14 @@ export async function startPlayWriterCDPRelayServer({
       browser: info?.browser || null,
       playwriterVersion: info?.version || null,
       targets,
+      browserTabs,
     })
   })
 
-  app.get('/extensions/status', (c) => {
-    const extensions = Array.from(store.getState().extensions.values()).map((ext) => {
+  app.get('/extensions/status', async (c) => {
+    const extensions = await Promise.all(Array.from(store.getState().extensions.values()).map(async (ext) => {
       const visibleTargets = Array.from(ext.connectedTargets.values())
-        .filter((target) => isTargetVisibleToPlaywright(target.targetInfo))
+        .filter((target) => isTargetVisibleToPlaywright(target.targetInfo, ext.stableKey))
       return {
         extensionId: ext.id,
         stableKey: ext.stableKey,
@@ -1061,8 +1286,13 @@ export async function startPlayWriterCDPRelayServer({
           url: target.targetInfo.url || '',
           shareSource: target.shareSource || null,
         })),
+        browserTabs: filterBrowserTabInventoryByPolicy(
+          await getBrowserTabInventory(ext.id),
+          ext.stableKey,
+          'read',
+        ),
       }
-    })
+    }))
     return c.json({ extensions })
   })
 
@@ -1082,6 +1312,21 @@ export async function startPlayWriterCDPRelayServer({
       if (!targetId || !bounds) {
         return c.json({ success: false, error: 'targetId and bounds are required' }, 400)
       }
+      const extension = getExtensionConnection(extensionId)
+      const target = Array.from(extension?.connectedTargets.values() ?? [])
+        .find((entry) => entry.targetId === targetId)
+      if (target && !doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), target.targetInfo.url || '', extension?.stableKey, 'action')) {
+        return c.json({
+          success: false,
+          error: formatBrowserAccessPolicyErrorMessage({
+            policy: getCurrentAccessPolicy(),
+            attemptedUrl: target.targetInfo.url || 'this page',
+            action: 'use',
+            currentUrl: target.targetInfo.url || null,
+            permissionKind: 'action',
+          }),
+        }, 403)
+      }
 
       const result = await sendToExtension({
         extensionId,
@@ -1096,6 +1341,569 @@ export async function startPlayWriterCDPRelayServer({
       })
     } catch (error: any) {
       logger?.error('Arrange window endpoint error:', error)
+      return c.json({ success: false, error: error.message || String(error) }, 500)
+    }
+  })
+
+  app.post('/extension/activate-tab', async (c) => {
+    try {
+      const body = (await c.req.json()) as {
+        extensionId?: string
+        chromeTabId?: number
+        windowId?: number
+      }
+      const { extensionId, chromeTabId, windowId } = body
+      if (typeof chromeTabId !== 'number' || !Number.isInteger(chromeTabId) || chromeTabId < 1) {
+        return c.json({ success: false, error: 'chromeTabId is required' }, 400)
+      }
+      const extension = getExtensionConnection(extensionId)
+      if (!extension) {
+        return c.json({ success: false, error: 'Extension not connected' }, 400)
+      }
+      const browserTabs = await getBrowserTabInventory(extension.id)
+      const browserTab = browserTabs.windows
+        .flatMap((window) => window.tabs)
+        .find((tab) => tab.chromeTabId === chromeTabId)
+      if (!browserTab) {
+        return c.json({ success: false, error: 'Browser tab not found' }, 404)
+      }
+
+      const result = await sendToExtension({
+        extensionId: extension.id,
+        method: 'activateBrowserTab',
+        params: { chromeTabId, windowId },
+        timeout: 5_000,
+      }) as { success?: boolean; error?: string }
+
+      return c.json({
+        success: result.success === true,
+        error: result.error,
+      })
+    } catch (error: any) {
+      logger?.error('Activate tab endpoint error:', error)
+      return c.json({ success: false, error: error.message || String(error) }, 500)
+    }
+  })
+
+  app.post('/extension/claim-tab', async (c) => {
+    try {
+      const body = (await c.req.json()) as {
+        extensionId?: string
+        chromeTabId?: number
+      }
+      const { extensionId, chromeTabId } = body
+      if (typeof chromeTabId !== 'number' || !Number.isInteger(chromeTabId) || chromeTabId < 1) {
+        return c.json({ success: false, error: 'chromeTabId is required' }, 400)
+      }
+
+      const extension = getExtensionConnection(extensionId)
+      if (!extension) {
+        return c.json({ success: false, error: 'Extension not connected' }, 400)
+      }
+      const browserTabs = await getBrowserTabInventory(extension.id)
+      const browserTab = browserTabs.windows
+        .flatMap((window) => window.tabs)
+        .find((tab) => tab.chromeTabId === chromeTabId)
+      if (!browserTab) {
+        return c.json({ success: false, error: 'Browser tab not found' }, 404)
+      }
+      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'action')) {
+        return c.json({
+          success: false,
+          error: formatBrowserAccessPolicyErrorMessage({
+            policy: getCurrentAccessPolicy(),
+            attemptedUrl: browserTab.url,
+            action: 'use',
+            currentUrl: browserTab.url,
+            permissionKind: 'action',
+          }),
+        }, 403)
+      }
+
+      const result = await sendToExtension({
+        extensionId: extension.id,
+        method: 'claimBrowserTab',
+        params: { chromeTabId },
+        timeout: 10_000,
+      }) as {
+        success?: boolean
+        error?: string
+        chromeTabId?: number
+        targetId?: string
+        sessionId?: string
+      }
+
+      return c.json({
+        success: result.success === true,
+        error: result.error,
+        chromeTabId: result.chromeTabId ?? chromeTabId,
+        targetId: result.targetId,
+        sessionId: result.sessionId,
+      }, result.success === true ? 200 : 500)
+    } catch (error: any) {
+      logger?.error('Claim tab endpoint error:', error)
+      return c.json({ success: false, error: error.message || String(error) }, 500)
+    }
+  })
+
+  app.post('/extension/page-elements', async (c) => {
+    try {
+      const body = (await c.req.json()) as {
+        extensionId?: string
+        chromeTabId?: number
+        maxElements?: number
+      }
+      const { extensionId, chromeTabId, maxElements } = body
+      if (typeof chromeTabId !== 'number' || !Number.isInteger(chromeTabId) || chromeTabId < 1) {
+        return c.json({ success: false, error: 'chromeTabId is required' }, 400)
+      }
+      if (maxElements !== undefined && (!Number.isInteger(maxElements) || maxElements < 1)) {
+        return c.json({ success: false, error: 'maxElements must be a positive integer' }, 400)
+      }
+
+      const extension = getExtensionConnection(extensionId)
+      if (!extension) {
+        return c.json({ success: false, error: 'Extension not connected' }, 400)
+      }
+      const browserTabs = await getBrowserTabInventory(extension.id)
+      const browserTab = browserTabs.windows
+        .flatMap((window) => window.tabs)
+        .find((tab) => tab.chromeTabId === chromeTabId)
+      if (!browserTab) {
+        return c.json({ success: false, error: 'Browser tab not found' }, 404)
+      }
+      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'read')) {
+        return c.json({
+          success: false,
+          error: formatBrowserAccessPolicyErrorMessage({
+            policy: getCurrentAccessPolicy(),
+            attemptedUrl: browserTab.url,
+            action: 'use',
+            currentUrl: browserTab.url,
+            permissionKind: 'read',
+          }),
+        }, 403)
+      }
+
+      const result = await sendToExtension({
+        extensionId: extension.id,
+        method: 'getPageElementInventory',
+        params: { chromeTabId, maxElements },
+        timeout: 5_000,
+      }) as PageElementInventory
+
+      if (result.success !== true) {
+        return c.json({
+          success: false,
+          error: result.error || 'Page element inventory failed',
+        }, 400)
+      }
+
+      return c.json({
+        success: true,
+        chromeTabId: result.chromeTabId ?? chromeTabId,
+        frames: result.frames ?? [],
+      })
+    } catch (error: any) {
+      logger?.error('Page elements endpoint error:', error)
+      return c.json({ success: false, error: error.message || String(error) }, 500)
+    }
+  })
+
+  app.post('/extension/page-trace', async (c) => {
+    try {
+      const body = (await c.req.json()) as {
+        extensionId?: string
+        chromeTabId?: number
+        frameId?: number
+        refId?: string
+        bounds?: {
+          x?: number
+          y?: number
+          width?: number
+          height?: number
+        }
+        durationMs?: number
+      }
+      const { extensionId, chromeTabId, frameId, refId, bounds, durationMs } = body
+      if (typeof chromeTabId !== 'number' || !Number.isInteger(chromeTabId) || chromeTabId < 1) {
+        return c.json({ success: false, error: 'chromeTabId is required' }, 400)
+      }
+      if (frameId !== undefined && (!Number.isInteger(frameId) || frameId < 0)) {
+        return c.json({ success: false, error: 'frameId must be a non-negative integer' }, 400)
+      }
+      const hasRef = typeof refId === 'string' && refId.trim().length > 0
+      const hasBounds = Boolean(
+        bounds
+          && Number.isFinite(bounds.x)
+          && Number.isFinite(bounds.y)
+          && Number.isFinite(bounds.width)
+          && Number.isFinite(bounds.height)
+          && bounds.width! > 0
+          && bounds.height! > 0,
+      )
+      if (!hasRef && !hasBounds) {
+        return c.json({ success: false, error: 'refId or bounds is required' }, 400)
+      }
+      if (durationMs !== undefined && (!Number.isInteger(durationMs) || durationMs < 100 || durationMs > 10_000)) {
+        return c.json({ success: false, error: 'durationMs must be an integer from 100 to 10000' }, 400)
+      }
+
+      const extension = getExtensionConnection(extensionId)
+      if (!extension) {
+        return c.json({ success: false, error: 'Extension not connected' }, 400)
+      }
+      const browserTabs = await getBrowserTabInventory(extension.id)
+      const browserTab = browserTabs.windows
+        .flatMap((window) => window.tabs)
+        .find((tab) => tab.chromeTabId === chromeTabId)
+      if (!browserTab) {
+        return c.json({ success: false, error: 'Browser tab not found' }, 404)
+      }
+      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'action')) {
+        return c.json({
+          success: false,
+          error: formatBrowserAccessPolicyErrorMessage({
+            policy: getCurrentAccessPolicy(),
+            attemptedUrl: browserTab.url,
+            action: 'use',
+            currentUrl: browserTab.url,
+            permissionKind: 'action',
+          }),
+        }, 403)
+      }
+
+      const result = await sendToExtension({
+        extensionId: extension.id,
+        method: 'drawPageTrace',
+        params: { chromeTabId, frameId, refId, bounds, durationMs },
+        timeout: 5_000,
+      }) as PageTraceResult
+
+      if (result.success !== true) {
+        return c.json({
+          success: false,
+          error: result.error || 'Page trace failed',
+        }, 400)
+      }
+
+      return c.json({
+        success: true,
+        chromeTabId: result.chromeTabId ?? chromeTabId,
+        frameId: result.frameId ?? frameId ?? 0,
+        refId: result.refId ?? null,
+        bounds: result.bounds,
+      })
+    } catch (error: any) {
+      logger?.error('Page trace endpoint error:', error)
+      return c.json({ success: false, error: error.message || String(error) }, 500)
+    }
+  })
+
+  app.post('/extension/page-click', async (c) => {
+    try {
+      const body = (await c.req.json()) as {
+        extensionId?: string
+        chromeTabId?: number
+        frameId?: number
+        refId?: string
+        durationMs?: number
+      }
+      const { extensionId, chromeTabId, frameId, refId, durationMs } = body
+      if (typeof chromeTabId !== 'number' || !Number.isInteger(chromeTabId) || chromeTabId < 1) {
+        return c.json({ success: false, error: 'chromeTabId is required' }, 400)
+      }
+      if (frameId !== undefined && (!Number.isInteger(frameId) || frameId < 0)) {
+        return c.json({ success: false, error: 'frameId must be a non-negative integer' }, 400)
+      }
+      if (typeof refId !== 'string' || refId.trim().length === 0) {
+        return c.json({ success: false, error: 'refId is required' }, 400)
+      }
+      if (durationMs !== undefined && (!Number.isInteger(durationMs) || durationMs < 100 || durationMs > 10_000)) {
+        return c.json({ success: false, error: 'durationMs must be an integer from 100 to 10000' }, 400)
+      }
+
+      const extension = getExtensionConnection(extensionId)
+      if (!extension) {
+        return c.json({ success: false, error: 'Extension not connected' }, 400)
+      }
+      const browserTabs = await getBrowserTabInventory(extension.id)
+      const browserTab = browserTabs.windows
+        .flatMap((window) => window.tabs)
+        .find((tab) => tab.chromeTabId === chromeTabId)
+      if (!browserTab) {
+        return c.json({ success: false, error: 'Browser tab not found' }, 404)
+      }
+      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'action')) {
+        return c.json({
+          success: false,
+          error: formatBrowserAccessPolicyErrorMessage({
+            policy: getCurrentAccessPolicy(),
+            attemptedUrl: browserTab.url,
+            action: 'use',
+            currentUrl: browserTab.url,
+            permissionKind: 'action',
+          }),
+        }, 403)
+      }
+
+      const result = await sendToExtension({
+        extensionId: extension.id,
+        method: 'clickPageElement',
+        params: { chromeTabId, frameId, refId, durationMs },
+        timeout: 5_000,
+      }) as PageClickResult
+
+      if (result.success !== true) {
+        return c.json({
+          success: false,
+          error: result.error || 'Page click failed',
+        }, 400)
+      }
+
+      return c.json({
+        success: true,
+        chromeTabId: result.chromeTabId ?? chromeTabId,
+        frameId: result.frameId ?? frameId ?? 0,
+        refId: result.refId ?? refId,
+        bounds: result.bounds,
+      })
+    } catch (error: any) {
+      logger?.error('Page click endpoint error:', error)
+      return c.json({ success: false, error: error.message || String(error) }, 500)
+    }
+  })
+
+  app.post('/extension/page-type', async (c) => {
+    try {
+      const body = (await c.req.json()) as {
+        extensionId?: string
+        chromeTabId?: number
+        frameId?: number
+        refId?: string
+        text?: string
+        durationMs?: number
+      }
+      const { extensionId, chromeTabId, frameId, refId, text, durationMs } = body
+      if (typeof chromeTabId !== 'number' || !Number.isInteger(chromeTabId) || chromeTabId < 1) {
+        return c.json({ success: false, error: 'chromeTabId is required' }, 400)
+      }
+      if (frameId !== undefined && (!Number.isInteger(frameId) || frameId < 0)) {
+        return c.json({ success: false, error: 'frameId must be a non-negative integer' }, 400)
+      }
+      if (typeof refId !== 'string' || refId.trim().length === 0) {
+        return c.json({ success: false, error: 'refId is required' }, 400)
+      }
+      if (typeof text !== 'string') {
+        return c.json({ success: false, error: 'text is required' }, 400)
+      }
+      if (durationMs !== undefined && (!Number.isInteger(durationMs) || durationMs < 100 || durationMs > 10_000)) {
+        return c.json({ success: false, error: 'durationMs must be an integer from 100 to 10000' }, 400)
+      }
+
+      const extension = getExtensionConnection(extensionId)
+      if (!extension) {
+        return c.json({ success: false, error: 'Extension not connected' }, 400)
+      }
+      const browserTabs = await getBrowserTabInventory(extension.id)
+      const browserTab = browserTabs.windows
+        .flatMap((window) => window.tabs)
+        .find((tab) => tab.chromeTabId === chromeTabId)
+      if (!browserTab) {
+        return c.json({ success: false, error: 'Browser tab not found' }, 404)
+      }
+      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'write')) {
+        return c.json({
+          success: false,
+          error: formatBrowserAccessPolicyErrorMessage({
+            policy: getCurrentAccessPolicy(),
+            attemptedUrl: browserTab.url,
+            action: 'use',
+            currentUrl: browserTab.url,
+            permissionKind: 'write',
+          }),
+        }, 403)
+      }
+
+      const result = await sendToExtension({
+        extensionId: extension.id,
+        method: 'typePageElement',
+        params: { chromeTabId, frameId, refId, text, durationMs },
+        timeout: 5_000,
+      }) as PageTypeResult
+
+      if (result.success !== true) {
+        return c.json({
+          success: false,
+          error: result.error || 'Page type failed',
+        }, 400)
+      }
+
+      return c.json({
+        success: true,
+        chromeTabId: result.chromeTabId ?? chromeTabId,
+        frameId: result.frameId ?? frameId ?? 0,
+        refId: result.refId ?? refId,
+        value: result.value ?? text,
+        bounds: result.bounds,
+      })
+    } catch (error: any) {
+      logger?.error('Page type endpoint error:', error)
+      return c.json({ success: false, error: error.message || String(error) }, 500)
+    }
+  })
+
+  app.post('/extension/page-select', async (c) => {
+    try {
+      const body = (await c.req.json()) as {
+        extensionId?: string
+        chromeTabId?: number
+        frameId?: number
+        refId?: string
+        value?: string
+        durationMs?: number
+      }
+      const { extensionId, chromeTabId, frameId, refId, value, durationMs } = body
+      if (typeof chromeTabId !== 'number' || !Number.isInteger(chromeTabId) || chromeTabId < 1) {
+        return c.json({ success: false, error: 'chromeTabId is required' }, 400)
+      }
+      if (frameId !== undefined && (!Number.isInteger(frameId) || frameId < 0)) {
+        return c.json({ success: false, error: 'frameId must be a non-negative integer' }, 400)
+      }
+      if (typeof refId !== 'string' || refId.trim().length === 0) {
+        return c.json({ success: false, error: 'refId is required' }, 400)
+      }
+      if (typeof value !== 'string') {
+        return c.json({ success: false, error: 'value is required' }, 400)
+      }
+      if (durationMs !== undefined && (!Number.isInteger(durationMs) || durationMs < 100 || durationMs > 10_000)) {
+        return c.json({ success: false, error: 'durationMs must be an integer from 100 to 10000' }, 400)
+      }
+
+      const extension = getExtensionConnection(extensionId)
+      if (!extension) {
+        return c.json({ success: false, error: 'Extension not connected' }, 400)
+      }
+      const browserTabs = await getBrowserTabInventory(extension.id)
+      const browserTab = browserTabs.windows
+        .flatMap((window) => window.tabs)
+        .find((tab) => tab.chromeTabId === chromeTabId)
+      if (!browserTab) {
+        return c.json({ success: false, error: 'Browser tab not found' }, 404)
+      }
+      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'write')) {
+        return c.json({
+          success: false,
+          error: formatBrowserAccessPolicyErrorMessage({
+            policy: getCurrentAccessPolicy(),
+            attemptedUrl: browserTab.url,
+            action: 'use',
+            currentUrl: browserTab.url,
+            permissionKind: 'write',
+          }),
+        }, 403)
+      }
+
+      const result = await sendToExtension({
+        extensionId: extension.id,
+        method: 'selectPageElement',
+        params: { chromeTabId, frameId, refId, value, durationMs },
+        timeout: 5_000,
+      }) as PageSelectResult
+
+      if (result.success !== true) {
+        return c.json({
+          success: false,
+          error: result.error || 'Page select failed',
+        }, 400)
+      }
+
+      return c.json({
+        success: true,
+        chromeTabId: result.chromeTabId ?? chromeTabId,
+        frameId: result.frameId ?? frameId ?? 0,
+        refId: result.refId ?? refId,
+        value: result.value ?? value,
+        bounds: result.bounds,
+      })
+    } catch (error: any) {
+      logger?.error('Page select endpoint error:', error)
+      return c.json({ success: false, error: error.message || String(error) }, 500)
+    }
+  })
+
+  app.post('/extension/page-scroll', async (c) => {
+    try {
+      const body = (await c.req.json()) as {
+        extensionId?: string
+        chromeTabId?: number
+        frameId?: number
+        refId?: string
+        deltaX?: number
+        deltaY?: number
+      }
+      const { extensionId, chromeTabId, frameId, refId, deltaX, deltaY } = body
+      if (typeof chromeTabId !== 'number' || !Number.isInteger(chromeTabId) || chromeTabId < 1) {
+        return c.json({ success: false, error: 'chromeTabId is required' }, 400)
+      }
+      if (frameId !== undefined && (!Number.isInteger(frameId) || frameId < 0)) {
+        return c.json({ success: false, error: 'frameId must be a non-negative integer' }, 400)
+      }
+      const scrollDeltaX = Number.isFinite(deltaX) ? deltaX! : 0
+      const scrollDeltaY = Number.isFinite(deltaY) ? deltaY! : 0
+      if (scrollDeltaX === 0 && scrollDeltaY === 0) {
+        return c.json({ success: false, error: 'deltaX or deltaY is required' }, 400)
+      }
+
+      const extension = getExtensionConnection(extensionId)
+      if (!extension) {
+        return c.json({ success: false, error: 'Extension not connected' }, 400)
+      }
+      const browserTabs = await getBrowserTabInventory(extension.id)
+      const browserTab = browserTabs.windows
+        .flatMap((window) => window.tabs)
+        .find((tab) => tab.chromeTabId === chromeTabId)
+      if (!browserTab) {
+        return c.json({ success: false, error: 'Browser tab not found' }, 404)
+      }
+      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'action')) {
+        return c.json({
+          success: false,
+          error: formatBrowserAccessPolicyErrorMessage({
+            policy: getCurrentAccessPolicy(),
+            attemptedUrl: browserTab.url,
+            action: 'use',
+            currentUrl: browserTab.url,
+            permissionKind: 'action',
+          }),
+        }, 403)
+      }
+
+      const result = await sendToExtension({
+        extensionId: extension.id,
+        method: 'scrollPage',
+        params: { chromeTabId, frameId, refId, deltaX: scrollDeltaX, deltaY: scrollDeltaY },
+        timeout: 5_000,
+      }) as PageScrollResult
+
+      if (result.success !== true) {
+        return c.json({
+          success: false,
+          error: result.error || 'Page scroll failed',
+        }, 400)
+      }
+
+      return c.json({
+        success: true,
+        chromeTabId: result.chromeTabId ?? chromeTabId,
+        frameId: result.frameId ?? frameId ?? 0,
+        refId: result.refId,
+        scrollX: result.scrollX ?? 0,
+        scrollY: result.scrollY ?? 0,
+        viewport: result.viewport,
+      })
+    } catch (error: any) {
+      logger?.error('Page scroll endpoint error:', error)
       return c.json({ success: false, error: error.message || String(error) }, 500)
     }
   })
@@ -1121,10 +1929,11 @@ export async function startPlayWriterCDPRelayServer({
     })
     .on(['GET', 'PUT'], '/json/list', (c) => {
       const wsUrl = getCdpWsUrl(c)
-      const defaultTargets = getExtensionConnection(null, { allowFallback: true })?.connectedTargets || new Map()
+      const defaultExtension = getExtensionConnection(null, { allowFallback: true })
+      const defaultTargets = defaultExtension?.connectedTargets || new Map()
       return c.json(
         Array.from(defaultTargets.values())
-          .filter((target) => isTargetVisibleToPlaywright(target.targetInfo))
+          .filter((target) => isTargetVisibleToPlaywright(target.targetInfo, defaultExtension?.stableKey))
           .map((t) => ({
           id: t.targetId,
           type: t.targetInfo.type,
@@ -1138,10 +1947,11 @@ export async function startPlayWriterCDPRelayServer({
     })
     .on(['GET', 'PUT'], '/json/list/', (c) => {
       const wsUrl = getCdpWsUrl(c)
-      const defaultTargets = getExtensionConnection(null, { allowFallback: true })?.connectedTargets || new Map()
+      const defaultExtension = getExtensionConnection(null, { allowFallback: true })
+      const defaultTargets = defaultExtension?.connectedTargets || new Map()
       return c.json(
         Array.from(defaultTargets.values())
-          .filter((target) => isTargetVisibleToPlaywright(target.targetInfo))
+          .filter((target) => isTargetVisibleToPlaywright(target.targetInfo, defaultExtension?.stableKey))
           .map((t) => ({
           id: t.targetId,
           type: t.targetInfo.type,
@@ -1155,10 +1965,11 @@ export async function startPlayWriterCDPRelayServer({
     })
     .on(['GET', 'PUT'], '/json', (c) => {
       const wsUrl = getCdpWsUrl(c)
-      const defaultTargets = getExtensionConnection(null, { allowFallback: true })?.connectedTargets || new Map()
+      const defaultExtension = getExtensionConnection(null, { allowFallback: true })
+      const defaultTargets = defaultExtension?.connectedTargets || new Map()
       return c.json(
         Array.from(defaultTargets.values())
-          .filter((target) => isTargetVisibleToPlaywright(target.targetInfo))
+          .filter((target) => isTargetVisibleToPlaywright(target.targetInfo, defaultExtension?.stableKey))
           .map((t) => ({
           id: t.targetId,
           type: t.targetInfo.type,
@@ -1172,10 +1983,11 @@ export async function startPlayWriterCDPRelayServer({
     })
     .on(['GET', 'PUT'], '/json/', (c) => {
       const wsUrl = getCdpWsUrl(c)
-      const defaultTargets = getExtensionConnection(null, { allowFallback: true })?.connectedTargets || new Map()
+      const defaultExtension = getExtensionConnection(null, { allowFallback: true })
+      const defaultTargets = defaultExtension?.connectedTargets || new Map()
       return c.json(
         Array.from(defaultTargets.values())
-          .filter((target) => isTargetVisibleToPlaywright(target.targetInfo))
+          .filter((target) => isTargetVisibleToPlaywright(target.targetInfo, defaultExtension?.stableKey))
           .map((t) => ({
           id: t.targetId,
           type: t.targetInfo.type,
@@ -1334,8 +2146,8 @@ export async function startPlayWriterCDPRelayServer({
               const freshExt = store.getState().extensions.get(extensionConn.id)
               const freshTargets = freshExt?.connectedTargets || new Map()
               for (const target of freshTargets.values()) {
-                // Skip restricted targets (extensions, chrome:// URLs, non-page types)
-                if (isRestrictedTarget(target.targetInfo)) {
+                // Skip restricted or policy-blocked targets.
+                if (!isTargetVisibleToPlaywright(target.targetInfo, freshExt?.stableKey)) {
                   continue
                 }
                 const attachedPayload = {
@@ -1371,8 +2183,8 @@ export async function startPlayWriterCDPRelayServer({
               const freshExt2 = store.getState().extensions.get(extensionConn.id)
               const freshTargets2 = freshExt2?.connectedTargets || new Map()
               for (const target of freshTargets2.values()) {
-                // Skip restricted targets (extensions, chrome:// URLs, non-page types)
-                if (isRestrictedTarget(target.targetInfo)) {
+                // Skip restricted or policy-blocked targets.
+                if (!isTargetVisibleToPlaywright(target.targetInfo, freshExt2?.stableKey)) {
                   continue
                 }
                 const targetCreatedPayload = {
@@ -1641,7 +2453,10 @@ export async function startPlayWriterCDPRelayServer({
                   : undefined
 
               const restrictedTarget = isRestrictedTarget(targetParams.targetInfo)
-              const visibleTarget = !restrictedTarget && isTargetAllowedByPolicy(targetParams.targetInfo)
+              const visibleTarget = !restrictedTarget && isTargetAllowedByPolicy(
+                targetParams.targetInfo,
+                currentExtState?.stableKey ?? connectionId,
+              )
 
               // Keep policy-blocked page targets in relay state so they can become visible
               // again if the user loosens the policy or the page navigates back into scope.
@@ -1937,250 +2752,252 @@ export async function startPlayWriterCDPRelayServer({
     }),
   )
 
-  // ============================================================================
-  // CLI Execute Endpoints - For stateful code execution via CLI
-  // ============================================================================
+  if (enableCliRoutes) {
+    // ============================================================================
+    // CLI Execute Endpoints - For stateful code execution via CLI
+    // ============================================================================
 
-  // Session counter for suggesting next session number
-  let nextSessionNumber = 1
+    // Session counter for suggesting next session number
+    let nextSessionNumber = 1
 
-  // Lazy-load ExecutorManager to avoid circular imports and only when needed
-  let executorManager: import('./executor.js').ExecutorManager | null = null
+    // Lazy-load ExecutorManager to avoid circular imports and only when needed
+    let executorManager: import('./executor.js').ExecutorManager | null = null
 
-  const getExecutorManager = async () => {
-    if (!executorManager) {
-      const { ExecutorManager } = await import('./executor.js')
-      // Pass config instead of URL so executor can generate unique client IDs for each connection
-      executorManager = new ExecutorManager({
-        cdpConfig: { host: '127.0.0.1', port },
-        logger: logger || { log: console.error, error: console.error },
-      })
-    }
-    return executorManager
-  }
-
-  // ============================================================================
-  // Security middleware for privileged HTTP routes (/cli/*)
-  //
-  // CORS alone does NOT prevent cross-origin POST attacks. Browsers skip the
-  // preflight for "simple" requests (POST + Content-Type: text/plain), so a
-  // malicious website can fire-and-forget a POST to localhost:19988/cli/execute
-  // and the code executes before CORS even enters the picture.
-  //
-  // Two layers of defense:
-  // 1. Sec-Fetch-Site: browsers set this forbidden header on every request.
-  //    If present and not "same-origin"/"none", it's a cross-origin browser
-  //    request → reject. Node.js clients don't send it → unaffected.
-  // 2. Content-Type must be application/json on POST. This forces a CORS
-  //    preflight as a fallback, which our CORS policy already blocks.
-  // 3. When token mode is enabled (remote access), require the token.
-  // ============================================================================
-  const privilegedRouteMiddleware = async (
-    c: Parameters<Parameters<typeof app.use>[1]>[0],
-    next: () => Promise<void>,
-  ) => {
-    // Block cross-origin browser requests via Sec-Fetch-Site header.
-    // Browsers always set this forbidden header; it cannot be spoofed.
-    // Non-browser clients (Node.js, curl, MCP) don't send it.
-    const secFetchSite = c.req.header('sec-fetch-site')
-    if (secFetchSite && secFetchSite !== 'same-origin' && secFetchSite !== 'none') {
-      logger?.log(pc.red(`Rejecting ${c.req.path}: cross-origin browser request (Sec-Fetch-Site: ${secFetchSite})`))
-      return c.text('Forbidden - Cross-origin requests not allowed', 403)
-    }
-
-    // Require application/json on POST to force CORS preflight as backup defense.
-    // A text/plain POST is a "simple request" that skips preflight entirely.
-    if (c.req.method === 'POST') {
-      const contentType = c.req.header('content-type') || ''
-      if (!contentType.includes('application/json')) {
-        logger?.log(pc.red(`Rejecting ${c.req.path}: Content-Type must be application/json, got: ${contentType}`))
-        return c.text('Content-Type must be application/json', 415)
+    const getExecutorManager = async () => {
+      if (!executorManager) {
+        const { ExecutorManager } = await import('./executor.js')
+        // Pass config instead of URL so executor can generate unique client IDs for each connection
+        executorManager = new ExecutorManager({
+          cdpConfig: { host: '127.0.0.1', port },
+          logger: logger || { log: console.error, error: console.error },
+        })
       }
+      return executorManager
     }
 
-    // When token mode is enabled (remote/serve mode), require authentication.
-    if (token) {
-      const authHeader = c.req.header('authorization') || ''
-      const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
-      const url = new URL(c.req.url, 'http://localhost')
-      const queryToken = url.searchParams.get('token')
-      if (bearerToken !== token && queryToken !== token) {
-        logger?.log(pc.red(`Rejecting ${c.req.path}: invalid or missing token`))
-        return c.text('Unauthorized', 401)
-      }
-    }
-
-    return next()
-  }
-
-  app.use('/cli/*', privilegedRouteMiddleware)
-
-  app.post('/cli/execute', async (c) => {
-    try {
-      const body = (await c.req.json()) as { sessionId: string | number; code: string; timeout?: number }
-      const sessionId = normalizeSessionId(body.sessionId)
-      const { code, timeout = 10000 } = body
-
-      if (!sessionId || !code) {
-        return c.json({ error: 'sessionId and code are required' }, 400)
+    // ============================================================================
+    // Security middleware for privileged HTTP routes (/cli/*)
+    //
+    // CORS alone does NOT prevent cross-origin POST attacks. Browsers skip the
+    // preflight for "simple" requests (POST + Content-Type: text/plain), so a
+    // malicious website can fire-and-forget a POST to localhost:19988/cli/execute
+    // and the code executes before CORS even enters the picture.
+    //
+    // Two layers of defense:
+    // 1. Sec-Fetch-Site: browsers set this forbidden header on every request.
+    //    If present and not "same-origin"/"none", it's a cross-origin browser
+    //    request → reject. Node.js clients don't send it → unaffected.
+    // 2. Content-Type must be application/json on POST. This forces a CORS
+    //    preflight as a fallback, which our CORS policy already blocks.
+    // 3. When token mode is enabled (remote access), require the token.
+    // ============================================================================
+    const privilegedRouteMiddleware = async (
+      c: Parameters<Parameters<typeof app.use>[1]>[0],
+      next: () => Promise<void>,
+    ) => {
+      // Block cross-origin browser requests via Sec-Fetch-Site header.
+      // Browsers always set this forbidden header; it cannot be spoofed.
+      // Non-browser clients (Node.js, curl, MCP) don't send it.
+      const secFetchSite = c.req.header('sec-fetch-site')
+      if (secFetchSite && secFetchSite !== 'same-origin' && secFetchSite !== 'none') {
+        logger?.log(pc.red(`Rejecting ${c.req.path}: cross-origin browser request (Sec-Fetch-Site: ${secFetchSite})`))
+        return c.text('Forbidden - Cross-origin requests not allowed', 403)
       }
 
+      // Require application/json on POST to force CORS preflight as backup defense.
+      // A text/plain POST is a "simple request" that skips preflight entirely.
+      if (c.req.method === 'POST') {
+        const contentType = c.req.header('content-type') || ''
+        if (!contentType.includes('application/json')) {
+          logger?.log(pc.red(`Rejecting ${c.req.path}: Content-Type must be application/json, got: ${contentType}`))
+          return c.text('Content-Type must be application/json', 415)
+        }
+      }
+
+      // When token mode is enabled (remote/serve mode), require authentication.
+      if (token) {
+        const authHeader = c.req.header('authorization') || ''
+        const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
+        const url = new URL(c.req.url, 'http://localhost')
+        const queryToken = url.searchParams.get('token')
+        if (bearerToken !== token && queryToken !== token) {
+          logger?.log(pc.red(`Rejecting ${c.req.path}: invalid or missing token`))
+          return c.text('Unauthorized', 401)
+        }
+      }
+
+      return next()
+    }
+
+    app.use('/cli/*', privilegedRouteMiddleware)
+
+    app.post('/cli/execute', async (c) => {
+      try {
+        const body = (await c.req.json()) as { sessionId: string | number; code: string; timeout?: number }
+        const sessionId = normalizeSessionId(body.sessionId)
+        const { code, timeout = 10000 } = body
+
+        if (!sessionId || !code) {
+          return c.json({ error: 'sessionId and code are required' }, 400)
+        }
+
+        const manager = await getExecutorManager()
+        const existingExecutor = manager.getSession(sessionId)
+        if (!existingExecutor) {
+          return c.json(
+            { text: `Session ${sessionId} not found. Run 'playwriter session new' first.`, images: [], screenshots: [], isError: true },
+            404,
+          )
+        }
+        const result = await existingExecutor.execute(code, timeout)
+
+        return c.json(result)
+      } catch (error: any) {
+        logger?.error('Execute endpoint error:', error)
+        return c.json({ text: `Server error: ${error.message}`, images: [], screenshots: [], isError: true }, 500)
+      }
+    })
+
+    app.post('/cli/reset', async (c) => {
+      try {
+        const body = (await c.req.json()) as { sessionId: string | number }
+        const sessionId = normalizeSessionId(body.sessionId)
+
+        if (!sessionId) {
+          return c.json({ error: 'sessionId is required' }, 400)
+        }
+
+        const manager = await getExecutorManager()
+        const existingExecutor = manager.getSession(sessionId)
+        if (!existingExecutor) {
+          return c.json({ error: `Session ${sessionId} not found. Run 'playwriter session new' first.` }, 404)
+        }
+        const { page, context } = await existingExecutor.reset()
+
+        return c.json({
+          success: true,
+          pageUrl: page.url(),
+          pagesCount: context.pages().length,
+        })
+      } catch (error: any) {
+        logger?.error('Reset endpoint error:', error)
+        return c.json({ error: error.message }, 500)
+      }
+    })
+
+    app.get('/cli/sessions', async (c) => {
       const manager = await getExecutorManager()
-      const existingExecutor = manager.getSession(sessionId)
-      if (!existingExecutor) {
-        return c.json(
-          { text: `Session ${sessionId} not found. Run 'playwriter session new' first.`, images: [], screenshots: [], isError: true },
-          404,
-        )
+      return c.json({ sessions: manager.listSessions() })
+    })
+
+    app.get('/cli/session/suggest', (c) => {
+      return c.json({ next: nextSessionNumber })
+    })
+
+    app.post('/cli/session/new', async (c) => {
+      const body = (await c.req.json().catch(() => ({}))) as {
+        extensionId?: string | null
+        cwd?: string
+        /** Direct CDP WebSocket URL — bypasses extension, connects straight to Chrome */
+        cdpEndpoint?: string
+        /** Browser name from discovery (e.g. "Chrome", "Brave") */
+        browser?: string
+        /** Profile info from discovery */
+        profiles?: Array<{ name: string; email: string }>
       }
-      const result = await existingExecutor.execute(code, timeout)
+      const sessionId = String(nextSessionNumber++)
+      const cwd = body.cwd
 
-      return c.json(result)
-    } catch (error: any) {
-      logger?.error('Execute endpoint error:', error)
-      return c.json({ text: `Server error: ${error.message}`, images: [], screenshots: [], isError: true }, 500)
-    }
-  })
-
-  app.post('/cli/reset', async (c) => {
-    try {
-      const body = (await c.req.json()) as { sessionId: string | number }
-      const sessionId = normalizeSessionId(body.sessionId)
-
-      if (!sessionId) {
-        return c.json({ error: 'sessionId is required' }, 400)
+      // Direct CDP mode: skip extension lookup, pass direct WebSocket URL to executor
+      if (body.cdpEndpoint) {
+        if (!body.cdpEndpoint.startsWith('ws://') && !body.cdpEndpoint.startsWith('wss://')) {
+          return c.json({ error: `Invalid cdpEndpoint: must start with ws:// or wss:// (got: ${body.cdpEndpoint})` }, 400)
+        }
+        // Use first profile from discovery for session metadata (if available)
+        const firstProfile = body.profiles?.[0]
+        const manager = await getExecutorManager()
+        const executor = manager.getExecutor({
+          sessionId,
+          cwd,
+          cdpConfig: { directCdpUrl: appendSessionToWsUrl(body.cdpEndpoint, sessionId) },
+          sessionMetadata: {
+            extensionId: null,
+            browser: body.browser || null,
+            profile: firstProfile ? { email: firstProfile.email, id: firstProfile.name } : null,
+          },
+        })
+        const metadata = executor.getSessionMetadata()
+        return c.json({
+          id: sessionId,
+          mode: 'direct' as const,
+          extensionId: metadata.extensionId,
+          browser: metadata.browser,
+          profile: metadata.profile,
+        })
       }
 
-      const manager = await getExecutorManager()
-      const existingExecutor = manager.getSession(sessionId)
-      if (!existingExecutor) {
-        return c.json({ error: `Session ${sessionId} not found. Run 'playwriter session new' first.` }, 404)
+      // Extension mode (existing behavior)
+      const extensionId = body.extensionId || null
+      const allowDefault = !extensionId && store.getState().extensions.size === 1
+      const conn = getExtensionConnection(extensionId, { allowFallback: allowDefault })
+      if (!conn) {
+        const error = extensionId
+          ? `Extension not connected: ${extensionId}`
+          : 'Multiple extensions connected. Specify extensionId.'
+        return c.json({ error }, 404)
       }
-      const { page, context } = await existingExecutor.reset()
-
-      return c.json({
-        success: true,
-        pageUrl: page.url(),
-        pagesCount: context.pages().length,
-      })
-    } catch (error: any) {
-      logger?.error('Reset endpoint error:', error)
-      return c.json({ error: error.message }, 500)
-    }
-  })
-
-  app.get('/cli/sessions', async (c) => {
-    const manager = await getExecutorManager()
-    return c.json({ sessions: manager.listSessions() })
-  })
-
-  app.get('/cli/session/suggest', (c) => {
-    return c.json({ next: nextSessionNumber })
-  })
-
-  app.post('/cli/session/new', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as {
-      extensionId?: string | null
-      cwd?: string
-      /** Direct CDP WebSocket URL — bypasses extension, connects straight to Chrome */
-      cdpEndpoint?: string
-      /** Browser name from discovery (e.g. "Chrome", "Brave") */
-      browser?: string
-      /** Profile info from discovery */
-      profiles?: Array<{ name: string; email: string }>
-    }
-    const sessionId = String(nextSessionNumber++)
-    const cwd = body.cwd
-
-    // Direct CDP mode: skip extension lookup, pass direct WebSocket URL to executor
-    if (body.cdpEndpoint) {
-      if (!body.cdpEndpoint.startsWith('ws://') && !body.cdpEndpoint.startsWith('wss://')) {
-        return c.json({ error: `Invalid cdpEndpoint: must start with ws:// or wss:// (got: ${body.cdpEndpoint})` }, 400)
-      }
-      // Use first profile from discovery for session metadata (if available)
-      const firstProfile = body.profiles?.[0]
       const manager = await getExecutorManager()
       const executor = manager.getExecutor({
         sessionId,
         cwd,
-        cdpConfig: { directCdpUrl: appendSessionToWsUrl(body.cdpEndpoint, sessionId) },
         sessionMetadata: {
-          extensionId: null,
-          browser: body.browser || null,
-          profile: firstProfile ? { email: firstProfile.email, id: firstProfile.name } : null,
+          extensionId: conn.stableKey,
+          browser: conn.info.browser || null,
+          profile: null,
         },
       })
       const metadata = executor.getSessionMetadata()
       return c.json({
         id: sessionId,
-        mode: 'direct' as const,
+        mode: 'extension' as const,
         extensionId: metadata.extensionId,
         browser: metadata.browser,
         profile: metadata.profile,
       })
-    }
-
-    // Extension mode (existing behavior)
-    const extensionId = body.extensionId || null
-    const allowDefault = !extensionId && store.getState().extensions.size === 1
-    const conn = getExtensionConnection(extensionId, { allowFallback: allowDefault })
-    if (!conn) {
-      const error = extensionId
-        ? `Extension not connected: ${extensionId}`
-        : 'Multiple extensions connected. Specify extensionId.'
-      return c.json({ error }, 404)
-    }
-    const manager = await getExecutorManager()
-    const executor = manager.getExecutor({
-      sessionId,
-      cwd,
-      sessionMetadata: {
-        extensionId: conn.stableKey,
-        browser: conn.info.browser || null,
-        profile: null,
-      },
     })
-    const metadata = executor.getSessionMetadata()
-    return c.json({
-      id: sessionId,
-      mode: 'extension' as const,
-      extensionId: metadata.extensionId,
-      browser: metadata.browser,
-      profile: metadata.profile,
-    })
-  })
 
-  app.get('/cli/session/:id', async (c) => {
-    const sessionId = c.req.param('id')
-    const manager = await getExecutorManager()
-    const executor = manager.getSession(sessionId)
-    if (!executor) {
-      return c.json({ error: 'not found' }, 404)
-    }
-    return c.json(executor.getSessionInfo({ id: sessionId }))
-  })
-
-  app.post('/cli/session/delete', async (c) => {
-    try {
-      const body = (await c.req.json()) as { sessionId: string | number }
-      const sessionId = normalizeSessionId(body.sessionId)
-
-      if (!sessionId) {
-        return c.json({ error: 'sessionId is required' }, 400)
-      }
-
+    app.get('/cli/session/:id', async (c) => {
+      const sessionId = c.req.param('id')
       const manager = await getExecutorManager()
-      const deleted = manager.deleteExecutor(sessionId)
-
-      if (!deleted) {
-        return c.json({ error: `Session ${sessionId} not found` }, 404)
+      const executor = manager.getSession(sessionId)
+      if (!executor) {
+        return c.json({ error: 'not found' }, 404)
       }
-      return c.json({ success: true })
-    } catch (error: any) {
-      logger?.error('Delete session endpoint error:', error)
-      return c.json({ error: error.message }, 500)
-    }
-  })
+      return c.json(executor.getSessionInfo({ id: sessionId }))
+    })
+
+    app.post('/cli/session/delete', async (c) => {
+      try {
+        const body = (await c.req.json()) as { sessionId: string | number }
+        const sessionId = normalizeSessionId(body.sessionId)
+
+        if (!sessionId) {
+          return c.json({ error: 'sessionId is required' }, 400)
+        }
+
+        const manager = await getExecutorManager()
+        const deleted = manager.deleteExecutor(sessionId)
+
+        if (!deleted) {
+          return c.json({ error: `Session ${sessionId} not found` }, 404)
+        }
+        return c.json({ success: true })
+      } catch (error: any) {
+        logger?.error('Delete session endpoint error:', error)
+        return c.json({ error: error.message }, 500)
+      }
+    })
+  }
 
   const server = serve({ fetch: app.fetch, port, hostname: host })
   injectWebSocket(server)

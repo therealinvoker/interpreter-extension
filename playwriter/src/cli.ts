@@ -838,6 +838,7 @@ cli
       host: options.host,
       token,
       logger,
+      enableCliRoutes: true,
     })
 
     console.log('Interpreter Chrome Extension relay started')

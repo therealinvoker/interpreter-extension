@@ -1,5 +1,83 @@
 # Changelog
 
+## 0.0.101
+
+### Changes
+
+- **Expose browser tab control state directly**: Tab inventory now reports explicit `observable` or `controllable` state for each listed Chrome tab while retaining legacy relay fields for older clients.
+
+## 0.0.100
+
+### Changes
+
+- **Expose viewport screen bounds with page element inventory**: The private extension now reports the observed page viewport's screen bounds so Interpreter can map Chrome page element refs into overlay selection coordinates.
+
+## 0.0.99
+
+### Changes
+
+- **Use observed-tab wording in window arrangement errors**: Replaced stale shared-tab terminology in extension-side browser window arrangement failures.
+
+## 0.0.98
+
+### Changes
+
+- **Honor read, write, and action browser-control permissions**: Interpreter browser control now lets the relay inspect allowed tabs while separately blocking typing/navigation and click/scroll/claim/control actions when those permission classes are denied.
+
+## 0.0.97
+
+### Changes
+
+- **Claim observed tabs for Playwright control through the local relay**: Interpreter can ask the extension to attach an allowed observed tab so advanced browser-control code can run against that exact Chrome tab.
+
+## 0.0.96
+
+### Changes
+
+- **Select bounded page element refs through the local relay**: Interpreter can ask the private relay to choose one exact option value on a policy-allowed select element, draw in-page feedback, and reject stale refs before acting.
+
+## 0.0.95
+
+### Changes
+
+- **Scroll policy-allowed page frames through the local relay**: Interpreter can ask the private relay to scroll a current tab/frame and receive the resulting viewport scroll position.
+
+## 0.0.94
+
+### Changes
+
+- **Type into bounded page element refs through the local relay**: Interpreter can ask the private relay to replace one policy-allowed editable page element value, draw in-page feedback, and reject stale refs before acting.
+
+## 0.0.93
+
+### Changes
+
+- **Click bounded page element refs through the local relay**: Interpreter can ask the private relay to click a policy-allowed page element ref, draw the same short-lived in-page feedback, and reject stale refs before acting.
+
+## 0.0.92
+
+### Changes
+
+- **Draw page-local browser control traces**: Interpreter can ask the private relay to show a short-lived in-page trace for a policy-allowed tab element or rectangle, with stale element refs rejected before drawing.
+
+## 0.0.91
+
+### Changes
+
+- **Expose bounded page element inventory to the local relay**: Interpreter can request read-only DOM element refs, bounds, frame metadata, and document revision for a policy-allowed tab through the private relay.
+
+## 0.0.90
+
+### Changes
+
+- **Allow the local relay to activate observed browser tabs**: Interpreter can now ask the extension to focus a listed Chrome tab without requiring that tab to already be a controllable Playwright target.
+
+## 0.0.89
+
+### Changes
+
+- **Expose read-only browser tab inventory to the local relay**: The background worker can now list current Chrome windows and tabs for Interpreter's local browser-control status, while still marking which tabs are actually shared/controllable through the extension.
+
 ## 0.0.88
 
 ### Changes

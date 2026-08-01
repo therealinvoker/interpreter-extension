@@ -32,6 +32,7 @@ const EXTENSION_DB_NAME = 'interpreter-extension'
 const EXTENSION_DB_VERSION = 1
 const EXTENSION_DB_STORE = 'metadata'
 const EXTENSION_INSTALL_ID_KEY = 'relay-install-id'
+const MAX_PAGE_ELEMENT_INVENTORY_COUNT = 200
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -152,12 +153,8 @@ async function getExtensionConnectionInfo(): Promise<ExtensionConnectionInfo> {
   return connectionInfoPromise
 }
 
-const TAB_GROUP_COLOR: chrome.tabGroups.ColorEnum = 'green'
-const TAB_GROUP_TITLE = 'Interpreter'
-
 let childSessions: Map<string, { tabId: number; targetId?: string }> = new Map()
 let nextSessionId = 1
-let tabGroupQueue: Promise<void> = Promise.resolve()
 // Cache Target.setAutoAttach params so existing and future tabs enable OOPIF target events.
 // This ensures Playwright can build the iframe frame tree when connecting over CDP.
 let autoAttachParams: Protocol.Target.SetAutoAttachRequest | null = null
@@ -363,6 +360,78 @@ class ConnectionManager {
         sendMessage({
           id: message.id,
           result: await arrangeWindowForTarget(message.params ?? {}),
+        })
+        return
+      }
+
+      if (message.method === 'activateBrowserTab') {
+        sendMessage({
+          id: message.id,
+          result: await activateBrowserTab(message.params ?? {}),
+        })
+        return
+      }
+
+      if (message.method === 'claimBrowserTab') {
+        sendMessage({
+          id: message.id,
+          result: await claimBrowserTab(message.params ?? {}),
+        })
+        return
+      }
+
+      if (message.method === 'listBrowserTabs') {
+        sendMessage({
+          id: message.id,
+          result: await listBrowserTabs(),
+        })
+        return
+      }
+
+      if (message.method === 'getPageElementInventory') {
+        sendMessage({
+          id: message.id,
+          result: await getPageElementInventory(message.params ?? {}),
+        })
+        return
+      }
+
+      if (message.method === 'drawPageTrace') {
+        sendMessage({
+          id: message.id,
+          result: await drawPageTrace(message.params ?? {}),
+        })
+        return
+      }
+
+      if (message.method === 'clickPageElement') {
+        sendMessage({
+          id: message.id,
+          result: await clickPageElement(message.params ?? {}),
+        })
+        return
+      }
+
+      if (message.method === 'typePageElement') {
+        sendMessage({
+          id: message.id,
+          result: await typePageElement(message.params ?? {}),
+        })
+        return
+      }
+
+      if (message.method === 'selectPageElement') {
+        sendMessage({
+          id: message.id,
+          result: await selectPageElement(message.params ?? {}),
+        })
+        return
+      }
+
+      if (message.method === 'scrollPage') {
+        sendMessage({
+          id: message.id,
+          result: await scrollPage(message.params ?? {}),
         })
         return
       }
@@ -680,86 +749,6 @@ export function sendMessage(message: any): void {
   }
 }
 
-async function syncTabGroup(): Promise<void> {
-  try {
-    // Include 'connecting' tabs in the group only when the relay is alive, so that
-    // tabs the user drags into the group stay visible while attaching. When the relay
-    // is dead all tabs are 'connecting' (waiting for reconnect) and the group should
-    // be cleaned up. The onUpdated handler (line ~1601) already guards against the
-    // ungroup→disconnect loop for 'connecting' tabs, so excluding them here is safe.
-    const { connectionState } = store.getState()
-    const isRelayConnected = connectionState === 'connected'
-    const connectedTabIds = Array.from(store.getState().tabs.entries())
-      .filter(([_, info]) => info.state === 'connected' || (info.state === 'connecting' && isRelayConnected))
-      .map(([tabId]) => tabId)
-
-    // Always query by title - no cached ID that can go stale
-    const existingGroups = await chrome.tabGroups.query({ title: TAB_GROUP_TITLE })
-
-    // If no connected tabs, clear any existing playwriter groups
-    if (connectedTabIds.length === 0) {
-      for (const group of existingGroups) {
-        const tabsInGroup = await chrome.tabs.query({ groupId: group.id })
-        const tabIdsToUngroup = tabsInGroup.map((t) => t.id).filter((id): id is number => id !== undefined)
-        if (tabIdsToUngroup.length > 0) {
-          await chrome.tabs.ungroup(tabIdsToUngroup)
-        }
-        logger.debug('Cleared playwriter group:', group.id)
-      }
-      return
-    }
-
-    // Consolidate duplicate groups into one
-    let groupId: number | undefined = existingGroups[0]?.id
-    if (existingGroups.length > 1) {
-      const [keep, ...duplicates] = existingGroups
-      groupId = keep.id
-      for (const group of duplicates) {
-        const tabsInDupe = await chrome.tabs.query({ groupId: group.id })
-        const tabIdsToUngroup = tabsInDupe.map((t) => t.id).filter((id): id is number => id !== undefined)
-        if (tabIdsToUngroup.length > 0) {
-          await chrome.tabs.ungroup(tabIdsToUngroup)
-        }
-        logger.debug('Removed duplicate playwriter group:', group.id)
-      }
-    }
-
-    const allTabs = await chrome.tabs.query({})
-    const tabsInGroup = allTabs.filter((t) => t.groupId === groupId && t.id !== undefined)
-    const tabIdsInGroup = new Set(tabsInGroup.map((t) => t.id!))
-
-    const tabsToAdd = connectedTabIds.filter((id) => !tabIdsInGroup.has(id))
-    const tabsToRemove = Array.from(tabIdsInGroup).filter((id) => !connectedTabIds.includes(id))
-
-    if (tabsToRemove.length > 0) {
-      try {
-        await chrome.tabs.ungroup(tabsToRemove)
-        logger.debug('Removed tabs from group:', tabsToRemove)
-      } catch (e: any) {
-        logger.debug('Failed to ungroup tabs:', tabsToRemove, e.message)
-      }
-    }
-
-    if (tabsToAdd.length > 0) {
-      if (groupId === undefined) {
-        const newGroupId = await chrome.tabs.group({ tabIds: tabsToAdd })
-        await chrome.tabGroups.update(newGroupId, { title: TAB_GROUP_TITLE, color: TAB_GROUP_COLOR })
-        logger.debug('Created tab group:', newGroupId, 'with tabs:', tabsToAdd)
-      } else {
-        await chrome.tabs.group({ tabIds: tabsToAdd, groupId })
-        await chrome.tabGroups.update(groupId, { title: TAB_GROUP_TITLE, color: TAB_GROUP_COLOR })
-        logger.debug('Added tabs to existing group:', tabsToAdd)
-      }
-    } else if (groupId !== undefined) {
-      // No tabs to add, but ensure the existing group keeps the right color/title.
-      // Chrome can reset these on group collapse/expand or tab moves.
-      await chrome.tabGroups.update(groupId, { title: TAB_GROUP_TITLE, color: TAB_GROUP_COLOR })
-    }
-  } catch (error: any) {
-    logger.debug('Failed to sync tab group:', error.message)
-  }
-}
-
 export function getTabBySessionId(sessionId: string): { tabId: number; tab: TabInfo } | undefined {
   for (const [tabId, tab] of store.getState().tabs) {
     if (tab.sessionId === sessionId) {
@@ -793,7 +782,7 @@ async function arrangeWindowForTarget(params: {
 
   const found = getTabByTargetId(params.targetId)
   if (!found) {
-    return { success: false, error: `No shared tab found for target ${params.targetId}` }
+    return { success: false, error: `No observed tab found for target ${params.targetId}` }
   }
 
   const { bounds } = params
@@ -809,7 +798,7 @@ async function arrangeWindowForTarget(params: {
   try {
     const tab = await chrome.tabs.get(found.tabId)
     if (tab.windowId === undefined) {
-      return { success: false, error: 'Shared tab has no owning window' }
+      return { success: false, error: 'Observed tab has no owning window' }
     }
 
     await chrome.windows.update(tab.windowId, { state: 'normal', focused: true })
@@ -822,6 +811,1680 @@ async function arrangeWindowForTarget(params: {
       focused: true,
     })
     return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error?.message || String(error) }
+  }
+}
+
+async function activateBrowserTab(params: {
+  chromeTabId?: number
+  windowId?: number
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const chromeTabId = Number.isInteger(params.chromeTabId) ? params.chromeTabId : null
+  if (!chromeTabId || chromeTabId < 1) {
+    return { success: false, error: 'chromeTabId is required' }
+  }
+
+  try {
+    const tab = await chrome.tabs.get(chromeTabId)
+    if (tab.windowId === undefined) {
+      return { success: false, error: 'Browser tab has no owning window' }
+    }
+    if (params.windowId !== undefined && tab.windowId !== params.windowId) {
+      return { success: false, error: 'Browser tab window does not match requested windowId' }
+    }
+
+    await chrome.windows.update(tab.windowId, { state: 'normal', focused: true })
+    await chrome.tabs.update(chromeTabId, { active: true })
+    await chrome.windows.update(tab.windowId, { focused: true })
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error?.message || String(error) }
+  }
+}
+
+async function claimBrowserTab(params: {
+  chromeTabId?: number
+}): Promise<{
+  success: true
+  chromeTabId: number
+  targetId: string
+  sessionId: string
+} | { success: false; error: string }> {
+  const chromeTabId = Number.isInteger(params.chromeTabId) ? params.chromeTabId : null
+  if (!chromeTabId || chromeTabId < 1) {
+    return { success: false, error: 'chromeTabId is required' }
+  }
+
+  const existing = store.getState().tabs.get(chromeTabId)
+  if (existing?.state === 'connected' && existing.targetId && existing.sessionId) {
+    return {
+      success: true,
+      chromeTabId,
+      targetId: existing.targetId,
+      sessionId: existing.sessionId,
+    }
+  }
+
+  try {
+    await chrome.tabs.get(chromeTabId)
+    setTabConnecting(chromeTabId)
+    await connectionManager.ensureConnection()
+    const { targetInfo, sessionId } = await attachTab(chromeTabId, { shareSource: 'agent-created' })
+    return {
+      success: true,
+      chromeTabId,
+      targetId: targetInfo.targetId,
+      sessionId,
+    }
+  } catch (error: any) {
+    store.setState((state) => {
+      const newTabs = new Map(state.tabs)
+      newTabs.set(chromeTabId, { state: 'error', errorText: `Error: ${error?.message || String(error)}` })
+      return { tabs: newTabs }
+    })
+    return { success: false, error: error?.message || String(error) }
+  }
+}
+
+async function listBrowserTabs(): Promise<{
+  windows: Array<{
+    windowId: number
+    focused: boolean
+    type: string
+    state: string
+    tabs: Array<{
+      chromeTabId: number
+      windowId: number
+      index: number
+      active: boolean
+      highlighted: boolean
+      pinned: boolean
+      title: string
+      url: string
+      status: string
+      controlState: 'observable' | 'controllable'
+      controlStateDetail?: string
+      shared: boolean
+      shareState?: string
+      targetId?: string
+      sessionId?: string
+    }>
+  }>
+}> {
+  const sharedTabs = store.getState().tabs
+  const windows = await chrome.windows.getAll({ populate: true })
+
+  return {
+    windows: windows.map((window) => ({
+      windowId: window.id ?? -1,
+      focused: Boolean(window.focused),
+      type: window.type ?? 'unknown',
+      state: window.state ?? 'unknown',
+      tabs: (window.tabs ?? [])
+        .filter((tab): tab is chrome.tabs.Tab & { id: number; windowId: number } => {
+          return typeof tab.id === 'number' && typeof tab.windowId === 'number'
+        })
+        .map((tab) => {
+          const shared = sharedTabs.get(tab.id)
+          const controlState = shared ? 'controllable' : 'observable'
+          return {
+            chromeTabId: tab.id,
+            windowId: tab.windowId,
+            index: tab.index,
+            active: Boolean(tab.active),
+            highlighted: Boolean(tab.highlighted),
+            pinned: Boolean(tab.pinned),
+            title: tab.title ?? '',
+            url: tab.url ?? '',
+            status: tab.status ?? 'unknown',
+            controlState,
+            controlStateDetail: shared?.state,
+            shared: Boolean(shared),
+            shareState: shared?.state,
+            targetId: shared?.targetId,
+            sessionId: shared?.sessionId,
+          }
+        }),
+    })),
+  }
+}
+
+type PageElementInventoryResult =
+  | {
+      success: true
+      chromeTabId: number
+      frames: Array<{
+        frameId: number
+        chromeDocumentId: string | null
+        url: string
+        documentRevision: string
+        viewport: {
+          width: number
+          height: number
+          scrollX: number
+          scrollY: number
+          devicePixelRatio: number
+          screenBounds: {
+            x: number
+            y: number
+            width: number
+            height: number
+          } | null
+        }
+        selectionText: string
+        elements: Array<{
+          refId: string
+          index: number
+          tagName: string
+          role: string
+          name: string
+          text: string
+          value: string | null
+          inputType: string | null
+          checked: boolean | null
+          disabled: boolean
+          editable: boolean
+          clickable: boolean
+          bounds: {
+            x: number
+            y: number
+            width: number
+            height: number
+          }
+        }>
+      }>
+    }
+  | {
+      success: false
+      error: string
+    }
+
+type PageTraceResult =
+  | {
+      success: true
+      chromeTabId: number
+      frameId: number
+      refId: string | null
+      bounds: {
+        x: number
+        y: number
+        width: number
+        height: number
+      }
+    }
+  | {
+      success: false
+      error: string
+    }
+
+type PageClickResult =
+  | {
+      success: true
+      chromeTabId: number
+      frameId: number
+      refId: string
+      bounds: {
+        x: number
+        y: number
+        width: number
+        height: number
+      }
+    }
+  | {
+      success: false
+      error: string
+    }
+
+type PageTypeResult =
+  | {
+      success: true
+      chromeTabId: number
+      frameId: number
+      refId: string
+      value: string
+      bounds: {
+        x: number
+        y: number
+        width: number
+        height: number
+      }
+    }
+  | {
+      success: false
+      error: string
+    }
+
+type PageSelectResult =
+  | {
+      success: true
+      chromeTabId: number
+      frameId: number
+      refId: string
+      value: string
+      bounds: {
+        x: number
+        y: number
+        width: number
+        height: number
+      }
+    }
+  | {
+      success: false
+      error: string
+    }
+
+type PageScrollResult =
+  | {
+      success: true
+      chromeTabId: number
+      frameId: number
+      refId?: string
+      scrollX: number
+      scrollY: number
+      viewport: {
+        width: number
+        height: number
+      }
+    }
+  | {
+      success: false
+      error: string
+    }
+
+async function getPageElementInventory(params: {
+  chromeTabId?: number
+  maxElements?: number
+}): Promise<PageElementInventoryResult> {
+  const chromeTabId = Number.isInteger(params.chromeTabId) ? params.chromeTabId : null
+  if (!chromeTabId || chromeTabId < 1) {
+    return { success: false, error: 'chromeTabId is required' }
+  }
+
+  const maxElements = Number.isInteger(params.maxElements)
+    ? Math.max(1, Math.min(params.maxElements!, MAX_PAGE_ELEMENT_INVENTORY_COUNT))
+    : 80
+
+  try {
+    await chrome.tabs.get(chromeTabId)
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: chromeTabId, allFrames: true },
+      args: [maxElements],
+      func: (maxElementsPerFrame: number) => {
+        type InventoryElement = {
+          refId: string
+          index: number
+          tagName: string
+          role: string
+          name: string
+          text: string
+          value: string | null
+          inputType: string | null
+          checked: boolean | null
+          disabled: boolean
+          editable: boolean
+          clickable: boolean
+          bounds: {
+            x: number
+            y: number
+            width: number
+            height: number
+          }
+        }
+
+        const compactText = (value: string | null | undefined, maxLength: number) => {
+          return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, maxLength)
+        }
+
+        const stableHash = (value: string) => {
+          let hash = 2166136261
+          for (let i = 0; i < value.length; i += 1) {
+            hash ^= value.charCodeAt(i)
+            hash = Math.imul(hash, 16777619)
+          }
+          return (hash >>> 0).toString(36)
+        }
+
+        const attribute = (element: Element, name: string) => {
+          return compactText(element.getAttribute(name), 240)
+        }
+
+        const roleForElement = (element: HTMLElement) => {
+          const explicitRole = attribute(element, 'role')
+          if (explicitRole) return explicitRole
+          const tagName = element.tagName.toLowerCase()
+          if (tagName === 'a') return 'link'
+          if (tagName === 'button') return 'button'
+          if (tagName === 'select') return 'combobox'
+          if (tagName === 'textarea') return 'textbox'
+          if (tagName === 'input') {
+            const type = (element as HTMLInputElement).type || 'text'
+            if (type === 'checkbox') return 'checkbox'
+            if (type === 'radio') return 'radio'
+            if (type === 'button' || type === 'submit' || type === 'reset') return 'button'
+            return 'textbox'
+          }
+          if (element.isContentEditable) return 'textbox'
+          return tagName
+        }
+
+        const nameForElement = (element: HTMLElement) => {
+          return compactText(
+            element.getAttribute('aria-label')
+              || element.getAttribute('title')
+              || element.getAttribute('alt')
+              || element.getAttribute('placeholder')
+              || element.getAttribute('name')
+              || element.textContent,
+            240,
+          )
+        }
+
+        const valueForElement = (element: HTMLElement) => {
+          if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+            return compactText(element.value, 240)
+          }
+          return null
+        }
+
+        const isElementVisible = (element: HTMLElement) => {
+          const style = window.getComputedStyle(element)
+          if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
+            return false
+          }
+          const rect = element.getBoundingClientRect()
+          return rect.width > 0 && rect.height > 0
+        }
+
+        const isClickable = (element: HTMLElement) => {
+          const tagName = element.tagName.toLowerCase()
+          return tagName === 'a'
+            || tagName === 'button'
+            || element.getAttribute('role') === 'button'
+            || typeof element.onclick === 'function'
+            || element.tabIndex >= 0
+        }
+
+        const isEditable = (element: HTMLElement) => {
+          return element instanceof HTMLInputElement
+            || element instanceof HTMLTextAreaElement
+            || element instanceof HTMLSelectElement
+            || element.isContentEditable
+        }
+
+        const candidates = Array.from(document.querySelectorAll<HTMLElement>(
+          'a, button, input, textarea, select, summary, [role], [tabindex], [contenteditable="true"], [onclick]',
+        ))
+        const elements: InventoryElement[] = []
+        const browserChromeX = Math.max(0, window.outerWidth - window.innerWidth)
+        const browserChromeY = Math.max(0, window.outerHeight - window.innerHeight)
+        const viewportScreenBounds = Number.isFinite(window.screenX)
+          && Number.isFinite(window.screenY)
+          && window.innerWidth > 0
+          && window.innerHeight > 0
+          ? {
+              x: Math.round(window.screenX + browserChromeX / 2),
+              y: Math.round(window.screenY + browserChromeY - browserChromeX / 2),
+              width: Math.round(window.innerWidth),
+              height: Math.round(window.innerHeight),
+            }
+          : null
+
+        for (const element of candidates) {
+          if (elements.length >= maxElementsPerFrame) break
+          if (!isElementVisible(element)) continue
+
+          const rect = element.getBoundingClientRect()
+          const input = element instanceof HTMLInputElement ? element : null
+          const index = elements.length
+          const role = roleForElement(element)
+          const name = nameForElement(element)
+          const text = compactText(element.textContent, 500)
+          const value = valueForElement(element)
+
+          elements.push({
+            refId: '',
+            index,
+            tagName: element.tagName.toLowerCase(),
+            role,
+            name,
+            text,
+            value,
+            inputType: input?.type ?? null,
+            checked: input && (input.type === 'checkbox' || input.type === 'radio') ? input.checked : null,
+            disabled: Boolean((element as HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).disabled),
+            editable: isEditable(element),
+            clickable: isClickable(element),
+            bounds: {
+              x: Math.round(rect.x),
+              y: Math.round(rect.y),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+            },
+          })
+        }
+        const documentRevision = stableHash(JSON.stringify({
+          url: window.location.href,
+          elements: elements.map((element) => ({
+            index: element.index,
+            tagName: element.tagName,
+            role: element.role,
+            name: element.name,
+            text: element.text,
+            value: element.value,
+            inputType: element.inputType,
+            checked: element.checked,
+            disabled: element.disabled,
+            editable: element.editable,
+            clickable: element.clickable,
+            bounds: element.bounds,
+          })),
+        }))
+        for (const element of elements) {
+          element.refId = `browser-element:${documentRevision}:${element.index}`
+        }
+        const selectionText = compactText(window.getSelection()?.toString(), 2000)
+
+        return {
+          url: window.location.href,
+          documentRevision,
+          viewport: {
+            width: window.innerWidth,
+            height: window.innerHeight,
+            scrollX: window.scrollX,
+            scrollY: window.scrollY,
+            devicePixelRatio: window.devicePixelRatio,
+            screenBounds: viewportScreenBounds,
+          },
+          selectionText,
+          elements,
+        }
+      },
+    })
+
+    return {
+      success: true,
+      chromeTabId,
+      frames: results.map((result) => ({
+        frameId: result.frameId,
+        chromeDocumentId: typeof result.documentId === 'string' ? result.documentId : null,
+        url: result.result?.url ?? '',
+        documentRevision: result.result?.documentRevision ?? '',
+        viewport: result.result?.viewport ?? {
+          width: 0,
+          height: 0,
+          scrollX: 0,
+          scrollY: 0,
+          devicePixelRatio: 1,
+          screenBounds: null,
+        },
+        selectionText: result.result?.selectionText ?? '',
+        elements: result.result?.elements ?? [],
+      })),
+    }
+  } catch (error: any) {
+    return { success: false, error: error?.message || String(error) }
+  }
+}
+
+async function drawPageTrace(params: {
+  chromeTabId?: number
+  frameId?: number
+  refId?: string
+  bounds?: {
+    x?: number
+    y?: number
+    width?: number
+    height?: number
+  }
+  durationMs?: number
+}): Promise<PageTraceResult> {
+  const chromeTabId = Number.isInteger(params.chromeTabId) ? params.chromeTabId : null
+  if (!chromeTabId || chromeTabId < 1) {
+    return { success: false, error: 'chromeTabId is required' }
+  }
+
+  const frameId = Number.isInteger(params.frameId) ? params.frameId! : 0
+  const refId = typeof params.refId === 'string' && params.refId.trim() ? params.refId.trim() : null
+  const inputBounds = params.bounds
+  const hasBounds = Boolean(
+    inputBounds
+      && Number.isFinite(inputBounds.x)
+      && Number.isFinite(inputBounds.y)
+      && Number.isFinite(inputBounds.width)
+      && Number.isFinite(inputBounds.height)
+      && inputBounds.width! > 0
+      && inputBounds.height! > 0,
+  )
+  if (!refId && !hasBounds) {
+    return { success: false, error: 'refId or bounds is required' }
+  }
+  const traceBounds = hasBounds
+    ? {
+        x: inputBounds!.x!,
+        y: inputBounds!.y!,
+        width: inputBounds!.width!,
+        height: inputBounds!.height!,
+      }
+    : null
+
+  const durationMs = Number.isInteger(params.durationMs)
+    ? Math.max(100, Math.min(params.durationMs!, 10_000))
+    : 900
+
+  try {
+    await chrome.tabs.get(chromeTabId)
+    const results = await chrome.scripting.executeScript({
+      target: frameId > 0 ? { tabId: chromeTabId, frameIds: [frameId] } : { tabId: chromeTabId },
+      args: [refId, traceBounds, durationMs],
+      func: (
+        requestedRefId: string | null,
+        requestedBounds: { x?: number; y?: number; width?: number; height?: number } | null,
+        traceDurationMs: number,
+      ) => {
+        const TRACE_ID = 'interpreter-browser-control-trace'
+
+        const compactText = (value: string | null | undefined, maxLength: number) => {
+          return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, maxLength)
+        }
+
+        const stableHash = (value: string) => {
+          let hash = 2166136261
+          for (let i = 0; i < value.length; i += 1) {
+            hash ^= value.charCodeAt(i)
+            hash = Math.imul(hash, 16777619)
+          }
+          return (hash >>> 0).toString(36)
+        }
+
+        const attribute = (element: Element, name: string) => {
+          return compactText(element.getAttribute(name), 240)
+        }
+
+        const roleForElement = (element: HTMLElement) => {
+          const explicitRole = attribute(element, 'role')
+          if (explicitRole) return explicitRole
+          const tagName = element.tagName.toLowerCase()
+          if (tagName === 'a') return 'link'
+          if (tagName === 'button') return 'button'
+          if (tagName === 'select') return 'combobox'
+          if (tagName === 'textarea') return 'textbox'
+          if (tagName === 'input') {
+            const type = (element as HTMLInputElement).type || 'text'
+            if (type === 'checkbox') return 'checkbox'
+            if (type === 'radio') return 'radio'
+            if (type === 'button' || type === 'submit' || type === 'reset') return 'button'
+            return 'textbox'
+          }
+          if (element.isContentEditable) return 'textbox'
+          return tagName
+        }
+
+        const nameForElement = (element: HTMLElement) => {
+          return compactText(
+            element.getAttribute('aria-label')
+              || element.getAttribute('title')
+              || element.getAttribute('alt')
+              || element.getAttribute('placeholder')
+              || element.getAttribute('name')
+              || element.textContent,
+            240,
+          )
+        }
+
+        const valueForElement = (element: HTMLElement) => {
+          if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+            return compactText(element.value, 240)
+          }
+          return null
+        }
+
+        const isElementVisible = (element: HTMLElement) => {
+          const style = window.getComputedStyle(element)
+          if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
+            return false
+          }
+          const rect = element.getBoundingClientRect()
+          return rect.width > 0 && rect.height > 0
+        }
+
+        const isClickable = (element: HTMLElement) => {
+          const tagName = element.tagName.toLowerCase()
+          return tagName === 'a'
+            || tagName === 'button'
+            || element.getAttribute('role') === 'button'
+            || typeof element.onclick === 'function'
+            || element.tabIndex >= 0
+        }
+
+        const isEditable = (element: HTMLElement) => {
+          return element instanceof HTMLInputElement
+            || element instanceof HTMLTextAreaElement
+            || element instanceof HTMLSelectElement
+            || element.isContentEditable
+        }
+
+        const resolveBoundsForRef = () => {
+          if (!requestedRefId) return null
+
+          const candidates = Array.from(document.querySelectorAll<HTMLElement>(
+            'a, button, input, textarea, select, summary, [role], [tabindex], [contenteditable="true"], [onclick]',
+          ))
+          const elements = []
+
+          for (const element of candidates) {
+            if (!isElementVisible(element)) continue
+            const rect = element.getBoundingClientRect()
+            const input = element instanceof HTMLInputElement ? element : null
+            elements.push({
+              element,
+              index: elements.length,
+              tagName: element.tagName.toLowerCase(),
+              role: roleForElement(element),
+              name: nameForElement(element),
+              text: compactText(element.textContent, 500),
+              value: valueForElement(element),
+              inputType: input?.type ?? null,
+              checked: input && (input.type === 'checkbox' || input.type === 'radio') ? input.checked : null,
+              disabled: Boolean((element as HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).disabled),
+              editable: isEditable(element),
+              clickable: isClickable(element),
+              bounds: {
+                x: Math.round(rect.x),
+                y: Math.round(rect.y),
+                width: Math.round(rect.width),
+                height: Math.round(rect.height),
+              },
+            })
+          }
+
+          const documentRevision = stableHash(JSON.stringify({
+            url: window.location.href,
+            elements: elements.map((element) => ({
+              index: element.index,
+              tagName: element.tagName,
+              role: element.role,
+              name: element.name,
+              text: element.text,
+              value: element.value,
+              inputType: element.inputType,
+              checked: element.checked,
+              disabled: element.disabled,
+              editable: element.editable,
+              clickable: element.clickable,
+              bounds: element.bounds,
+            })),
+          }))
+
+          const match = elements.find((element) => {
+            return `browser-element:${documentRevision}:${element.index}` === requestedRefId
+          })
+          if (!match) return null
+
+          return match.bounds
+        }
+
+        const traceBounds = requestedBounds && Number.isFinite(requestedBounds.x) && Number.isFinite(requestedBounds.y)
+          && Number.isFinite(requestedBounds.width) && Number.isFinite(requestedBounds.height)
+          && requestedBounds.width! > 0 && requestedBounds.height! > 0
+          ? {
+              x: Math.round(requestedBounds.x!),
+              y: Math.round(requestedBounds.y!),
+              width: Math.round(requestedBounds.width!),
+              height: Math.round(requestedBounds.height!),
+            }
+          : resolveBoundsForRef()
+        if (!traceBounds) {
+          return { success: false as const, error: 'refId is stale or not visible' }
+        }
+
+        const existing = document.getElementById(TRACE_ID)
+        existing?.remove()
+
+        const trace = document.createElement('div')
+        trace.id = TRACE_ID
+        trace.setAttribute('aria-hidden', 'true')
+        trace.style.position = 'absolute'
+        trace.style.left = `${traceBounds.x + window.scrollX}px`
+        trace.style.top = `${traceBounds.y + window.scrollY}px`
+        trace.style.width = `${traceBounds.width}px`
+        trace.style.height = `${traceBounds.height}px`
+        trace.style.pointerEvents = 'none'
+        trace.style.boxSizing = 'border-box'
+        trace.style.border = '2px solid rgba(64, 148, 255, 0.95)'
+        trace.style.background = 'rgba(64, 148, 255, 0.14)'
+        trace.style.boxShadow = '0 0 0 4px rgba(64, 148, 255, 0.18)'
+        trace.style.borderRadius = '8px'
+        trace.style.zIndex = '2147483647'
+        trace.style.transition = 'opacity 160ms ease'
+        ;(document.body || document.documentElement).appendChild(trace)
+
+        window.setTimeout(() => {
+          trace.style.opacity = '0'
+          window.setTimeout(() => trace.remove(), 180)
+        }, traceDurationMs)
+
+        return { success: true as const, bounds: traceBounds }
+      },
+    })
+
+    const result = results[0]
+    if (result?.result?.success !== true) {
+      return { success: false, error: result?.result?.error ?? 'Page trace failed' }
+    }
+
+    return {
+      success: true,
+      chromeTabId,
+      frameId: result.frameId,
+      refId,
+      bounds: result.result.bounds,
+    }
+  } catch (error: any) {
+    return { success: false, error: error?.message || String(error) }
+  }
+}
+
+async function clickPageElement(params: {
+  chromeTabId?: number
+  frameId?: number
+  refId?: string
+  durationMs?: number
+}): Promise<PageClickResult> {
+  const chromeTabId = Number.isInteger(params.chromeTabId) ? params.chromeTabId : null
+  if (!chromeTabId || chromeTabId < 1) {
+    return { success: false, error: 'chromeTabId is required' }
+  }
+
+  const frameId = Number.isInteger(params.frameId) ? params.frameId! : 0
+  const refId = typeof params.refId === 'string' && params.refId.trim() ? params.refId.trim() : null
+  if (!refId) {
+    return { success: false, error: 'refId is required' }
+  }
+
+  const durationMs = Number.isInteger(params.durationMs)
+    ? Math.max(100, Math.min(params.durationMs!, 10_000))
+    : 900
+
+  try {
+    await chrome.tabs.get(chromeTabId)
+    const results = await chrome.scripting.executeScript({
+      target: frameId > 0 ? { tabId: chromeTabId, frameIds: [frameId] } : { tabId: chromeTabId },
+      args: [refId, durationMs],
+      func: (requestedRefId: string, traceDurationMs: number) => {
+        const TRACE_ID = 'interpreter-browser-control-trace'
+
+        const compactText = (value: string | null | undefined, maxLength: number) => {
+          return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, maxLength)
+        }
+
+        const stableHash = (value: string) => {
+          let hash = 2166136261
+          for (let i = 0; i < value.length; i += 1) {
+            hash ^= value.charCodeAt(i)
+            hash = Math.imul(hash, 16777619)
+          }
+          return (hash >>> 0).toString(36)
+        }
+
+        const attribute = (element: Element, name: string) => {
+          return compactText(element.getAttribute(name), 240)
+        }
+
+        const roleForElement = (element: HTMLElement) => {
+          const explicitRole = attribute(element, 'role')
+          if (explicitRole) return explicitRole
+          const tagName = element.tagName.toLowerCase()
+          if (tagName === 'a') return 'link'
+          if (tagName === 'button') return 'button'
+          if (tagName === 'select') return 'combobox'
+          if (tagName === 'textarea') return 'textbox'
+          if (tagName === 'input') {
+            const type = (element as HTMLInputElement).type || 'text'
+            if (type === 'checkbox') return 'checkbox'
+            if (type === 'radio') return 'radio'
+            if (type === 'button' || type === 'submit' || type === 'reset') return 'button'
+            return 'textbox'
+          }
+          if (element.isContentEditable) return 'textbox'
+          return tagName
+        }
+
+        const nameForElement = (element: HTMLElement) => {
+          return compactText(
+            element.getAttribute('aria-label')
+              || element.getAttribute('title')
+              || element.getAttribute('alt')
+              || element.getAttribute('placeholder')
+              || element.getAttribute('name')
+              || element.textContent,
+            240,
+          )
+        }
+
+        const valueForElement = (element: HTMLElement) => {
+          if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+            return compactText(element.value, 240)
+          }
+          return null
+        }
+
+        const isElementVisible = (element: HTMLElement) => {
+          const style = window.getComputedStyle(element)
+          if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
+            return false
+          }
+          const rect = element.getBoundingClientRect()
+          return rect.width > 0 && rect.height > 0
+        }
+
+        const isClickable = (element: HTMLElement) => {
+          const tagName = element.tagName.toLowerCase()
+          return tagName === 'a'
+            || tagName === 'button'
+            || element.getAttribute('role') === 'button'
+            || typeof element.onclick === 'function'
+            || element.tabIndex >= 0
+        }
+
+        const isEditable = (element: HTMLElement) => {
+          return element instanceof HTMLInputElement
+            || element instanceof HTMLTextAreaElement
+            || element instanceof HTMLSelectElement
+            || element.isContentEditable
+        }
+
+        const candidates = Array.from(document.querySelectorAll<HTMLElement>(
+          'a, button, input, textarea, select, summary, [role], [tabindex], [contenteditable="true"], [onclick]',
+        ))
+        const elements = []
+
+        for (const element of candidates) {
+          if (!isElementVisible(element)) continue
+          const rect = element.getBoundingClientRect()
+          const input = element instanceof HTMLInputElement ? element : null
+          elements.push({
+            element,
+            index: elements.length,
+            tagName: element.tagName.toLowerCase(),
+            role: roleForElement(element),
+            name: nameForElement(element),
+            text: compactText(element.textContent, 500),
+            value: valueForElement(element),
+            inputType: input?.type ?? null,
+            checked: input && (input.type === 'checkbox' || input.type === 'radio') ? input.checked : null,
+            disabled: Boolean((element as HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).disabled),
+            editable: isEditable(element),
+            clickable: isClickable(element),
+            bounds: {
+              x: Math.round(rect.x),
+              y: Math.round(rect.y),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+            },
+          })
+        }
+
+        const documentRevision = stableHash(JSON.stringify({
+          url: window.location.href,
+          elements: elements.map((element) => ({
+            index: element.index,
+            tagName: element.tagName,
+            role: element.role,
+            name: element.name,
+            text: element.text,
+            value: element.value,
+            inputType: element.inputType,
+            checked: element.checked,
+            disabled: element.disabled,
+            editable: element.editable,
+            clickable: element.clickable,
+            bounds: element.bounds,
+          })),
+        }))
+
+        const match = elements.find((element) => {
+          return `browser-element:${documentRevision}:${element.index}` === requestedRefId
+        })
+        if (!match) {
+          return { success: false as const, error: 'refId is stale or not visible' }
+        }
+        if (match.disabled) {
+          return { success: false as const, error: 'element is disabled' }
+        }
+
+        const existing = document.getElementById(TRACE_ID)
+        existing?.remove()
+
+        const trace = document.createElement('div')
+        trace.id = TRACE_ID
+        trace.setAttribute('aria-hidden', 'true')
+        trace.style.position = 'absolute'
+        trace.style.left = `${match.bounds.x + window.scrollX}px`
+        trace.style.top = `${match.bounds.y + window.scrollY}px`
+        trace.style.width = `${match.bounds.width}px`
+        trace.style.height = `${match.bounds.height}px`
+        trace.style.pointerEvents = 'none'
+        trace.style.boxSizing = 'border-box'
+        trace.style.border = '2px solid rgba(64, 148, 255, 0.95)'
+        trace.style.background = 'rgba(64, 148, 255, 0.14)'
+        trace.style.boxShadow = '0 0 0 4px rgba(64, 148, 255, 0.18)'
+        trace.style.borderRadius = '8px'
+        trace.style.zIndex = '2147483647'
+        trace.style.transition = 'opacity 160ms ease'
+        ;(document.body || document.documentElement).appendChild(trace)
+
+        window.setTimeout(() => {
+          trace.style.opacity = '0'
+          window.setTimeout(() => trace.remove(), 180)
+        }, traceDurationMs)
+
+        match.element.click()
+
+        return { success: true as const, bounds: match.bounds }
+      },
+    })
+
+    const result = results[0]
+    if (result?.result?.success !== true) {
+      return { success: false, error: result?.result?.error ?? 'Page click failed' }
+    }
+
+    return {
+      success: true,
+      chromeTabId,
+      frameId: result.frameId,
+      refId,
+      bounds: result.result.bounds,
+    }
+  } catch (error: any) {
+    return { success: false, error: error?.message || String(error) }
+  }
+}
+
+async function typePageElement(params: {
+  chromeTabId?: number
+  frameId?: number
+  refId?: string
+  text?: string
+  durationMs?: number
+}): Promise<PageTypeResult> {
+  const chromeTabId = Number.isInteger(params.chromeTabId) ? params.chromeTabId : null
+  if (!chromeTabId || chromeTabId < 1) {
+    return { success: false, error: 'chromeTabId is required' }
+  }
+
+  const frameId = Number.isInteger(params.frameId) ? params.frameId! : 0
+  const refId = typeof params.refId === 'string' && params.refId.trim() ? params.refId.trim() : null
+  if (!refId) {
+    return { success: false, error: 'refId is required' }
+  }
+  if (typeof params.text !== 'string') {
+    return { success: false, error: 'text is required' }
+  }
+
+  const durationMs = Number.isInteger(params.durationMs)
+    ? Math.max(100, Math.min(params.durationMs!, 10_000))
+    : 900
+
+  try {
+    await chrome.tabs.get(chromeTabId)
+    const results = await chrome.scripting.executeScript({
+      target: frameId > 0 ? { tabId: chromeTabId, frameIds: [frameId] } : { tabId: chromeTabId },
+      args: [refId, params.text, durationMs],
+      func: (requestedRefId: string, requestedText: string, traceDurationMs: number) => {
+        const TRACE_ID = 'interpreter-browser-control-trace'
+
+        const compactText = (value: string | null | undefined, maxLength: number) => {
+          return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, maxLength)
+        }
+
+        const stableHash = (value: string) => {
+          let hash = 2166136261
+          for (let i = 0; i < value.length; i += 1) {
+            hash ^= value.charCodeAt(i)
+            hash = Math.imul(hash, 16777619)
+          }
+          return (hash >>> 0).toString(36)
+        }
+
+        const attribute = (element: Element, name: string) => {
+          return compactText(element.getAttribute(name), 240)
+        }
+
+        const roleForElement = (element: HTMLElement) => {
+          const explicitRole = attribute(element, 'role')
+          if (explicitRole) return explicitRole
+          const tagName = element.tagName.toLowerCase()
+          if (tagName === 'a') return 'link'
+          if (tagName === 'button') return 'button'
+          if (tagName === 'select') return 'combobox'
+          if (tagName === 'textarea') return 'textbox'
+          if (tagName === 'input') {
+            const type = (element as HTMLInputElement).type || 'text'
+            if (type === 'checkbox') return 'checkbox'
+            if (type === 'radio') return 'radio'
+            if (type === 'button' || type === 'submit' || type === 'reset') return 'button'
+            return 'textbox'
+          }
+          if (element.isContentEditable) return 'textbox'
+          return tagName
+        }
+
+        const nameForElement = (element: HTMLElement) => {
+          return compactText(
+            element.getAttribute('aria-label')
+              || element.getAttribute('title')
+              || element.getAttribute('alt')
+              || element.getAttribute('placeholder')
+              || element.getAttribute('name')
+              || element.textContent,
+            240,
+          )
+        }
+
+        const valueForElement = (element: HTMLElement) => {
+          if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+            return compactText(element.value, 240)
+          }
+          return null
+        }
+
+        const isElementVisible = (element: HTMLElement) => {
+          const style = window.getComputedStyle(element)
+          if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
+            return false
+          }
+          const rect = element.getBoundingClientRect()
+          return rect.width > 0 && rect.height > 0
+        }
+
+        const isClickable = (element: HTMLElement) => {
+          const tagName = element.tagName.toLowerCase()
+          return tagName === 'a'
+            || tagName === 'button'
+            || element.getAttribute('role') === 'button'
+            || typeof element.onclick === 'function'
+            || element.tabIndex >= 0
+        }
+
+        const isEditable = (element: HTMLElement) => {
+          return element instanceof HTMLInputElement
+            || element instanceof HTMLTextAreaElement
+            || element instanceof HTMLSelectElement
+            || element.isContentEditable
+        }
+
+        const canReceiveText = (element: HTMLElement) => {
+          if (element instanceof HTMLTextAreaElement || element.isContentEditable) {
+            return true
+          }
+          if (!(element instanceof HTMLInputElement)) {
+            return false
+          }
+          return !['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes(element.type)
+        }
+
+        const candidates = Array.from(document.querySelectorAll<HTMLElement>(
+          'a, button, input, textarea, select, summary, [role], [tabindex], [contenteditable="true"], [onclick]',
+        ))
+        const elements = []
+
+        for (const element of candidates) {
+          if (!isElementVisible(element)) continue
+          const rect = element.getBoundingClientRect()
+          const input = element instanceof HTMLInputElement ? element : null
+          elements.push({
+            element,
+            index: elements.length,
+            tagName: element.tagName.toLowerCase(),
+            role: roleForElement(element),
+            name: nameForElement(element),
+            text: compactText(element.textContent, 500),
+            value: valueForElement(element),
+            inputType: input?.type ?? null,
+            checked: input && (input.type === 'checkbox' || input.type === 'radio') ? input.checked : null,
+            disabled: Boolean((element as HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).disabled),
+            editable: isEditable(element),
+            clickable: isClickable(element),
+            bounds: {
+              x: Math.round(rect.x),
+              y: Math.round(rect.y),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+            },
+          })
+        }
+
+        const documentRevision = stableHash(JSON.stringify({
+          url: window.location.href,
+          elements: elements.map((element) => ({
+            index: element.index,
+            tagName: element.tagName,
+            role: element.role,
+            name: element.name,
+            text: element.text,
+            value: element.value,
+            inputType: element.inputType,
+            checked: element.checked,
+            disabled: element.disabled,
+            editable: element.editable,
+            clickable: element.clickable,
+            bounds: element.bounds,
+          })),
+        }))
+
+        const match = elements.find((element) => {
+          return `browser-element:${documentRevision}:${element.index}` === requestedRefId
+        })
+        if (!match) {
+          return { success: false as const, error: 'refId is stale or not visible' }
+        }
+        if (match.disabled) {
+          return { success: false as const, error: 'element is disabled' }
+        }
+        if (!canReceiveText(match.element)) {
+          return { success: false as const, error: 'element is not editable text' }
+        }
+
+        const existing = document.getElementById(TRACE_ID)
+        existing?.remove()
+
+        const trace = document.createElement('div')
+        trace.id = TRACE_ID
+        trace.setAttribute('aria-hidden', 'true')
+        trace.style.position = 'absolute'
+        trace.style.left = `${match.bounds.x + window.scrollX}px`
+        trace.style.top = `${match.bounds.y + window.scrollY}px`
+        trace.style.width = `${match.bounds.width}px`
+        trace.style.height = `${match.bounds.height}px`
+        trace.style.pointerEvents = 'none'
+        trace.style.boxSizing = 'border-box'
+        trace.style.border = '2px solid rgba(64, 148, 255, 0.95)'
+        trace.style.background = 'rgba(64, 148, 255, 0.14)'
+        trace.style.boxShadow = '0 0 0 4px rgba(64, 148, 255, 0.18)'
+        trace.style.borderRadius = '8px'
+        trace.style.zIndex = '2147483647'
+        trace.style.transition = 'opacity 160ms ease'
+        ;(document.body || document.documentElement).appendChild(trace)
+
+        window.setTimeout(() => {
+          trace.style.opacity = '0'
+          window.setTimeout(() => trace.remove(), 180)
+        }, traceDurationMs)
+
+        match.element.focus()
+        if (match.element instanceof HTMLInputElement || match.element instanceof HTMLTextAreaElement) {
+          match.element.value = requestedText
+          match.element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: requestedText }))
+          match.element.dispatchEvent(new Event('change', { bubbles: true }))
+          return { success: true as const, bounds: match.bounds, value: match.element.value }
+        }
+
+        match.element.textContent = requestedText
+        match.element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: requestedText }))
+        match.element.dispatchEvent(new Event('change', { bubbles: true }))
+        return { success: true as const, bounds: match.bounds, value: match.element.textContent ?? '' }
+      },
+    })
+
+    const result = results[0]
+    if (result?.result?.success !== true) {
+      return { success: false, error: result?.result?.error ?? 'Page type failed' }
+    }
+
+    return {
+      success: true,
+      chromeTabId,
+      frameId: result.frameId,
+      refId,
+      value: result.result.value,
+      bounds: result.result.bounds,
+    }
+  } catch (error: any) {
+    return { success: false, error: error?.message || String(error) }
+  }
+}
+
+async function selectPageElement(params: {
+  chromeTabId?: number
+  frameId?: number
+  refId?: string
+  value?: string
+  durationMs?: number
+}): Promise<PageSelectResult> {
+  const chromeTabId = Number.isInteger(params.chromeTabId) ? params.chromeTabId : null
+  if (!chromeTabId || chromeTabId < 1) {
+    return { success: false, error: 'chromeTabId is required' }
+  }
+
+  const frameId = Number.isInteger(params.frameId) ? params.frameId! : 0
+  const refId = typeof params.refId === 'string' && params.refId.trim() ? params.refId.trim() : null
+  if (!refId) {
+    return { success: false, error: 'refId is required' }
+  }
+  if (typeof params.value !== 'string') {
+    return { success: false, error: 'value is required' }
+  }
+
+  const durationMs = Number.isInteger(params.durationMs)
+    ? Math.max(100, Math.min(params.durationMs!, 10_000))
+    : 900
+
+  try {
+    await chrome.tabs.get(chromeTabId)
+    const results = await chrome.scripting.executeScript({
+      target: frameId > 0 ? { tabId: chromeTabId, frameIds: [frameId] } : { tabId: chromeTabId },
+      args: [refId, params.value, durationMs],
+      func: (requestedRefId: string, requestedValue: string, traceDurationMs: number) => {
+        const TRACE_ID = 'interpreter-browser-control-trace'
+
+        const compactText = (value: string | null | undefined, maxLength: number) => {
+          return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, maxLength)
+        }
+
+        const stableHash = (value: string) => {
+          let hash = 2166136261
+          for (let i = 0; i < value.length; i += 1) {
+            hash ^= value.charCodeAt(i)
+            hash = Math.imul(hash, 16777619)
+          }
+          return (hash >>> 0).toString(36)
+        }
+
+        const attribute = (element: Element, name: string) => {
+          return compactText(element.getAttribute(name), 240)
+        }
+
+        const roleForElement = (element: HTMLElement) => {
+          const explicitRole = attribute(element, 'role')
+          if (explicitRole) return explicitRole
+          const tagName = element.tagName.toLowerCase()
+          if (tagName === 'a') return 'link'
+          if (tagName === 'button') return 'button'
+          if (tagName === 'select') return 'combobox'
+          if (tagName === 'textarea') return 'textbox'
+          if (tagName === 'input') {
+            const type = (element as HTMLInputElement).type || 'text'
+            if (type === 'checkbox') return 'checkbox'
+            if (type === 'radio') return 'radio'
+            if (type === 'button' || type === 'submit' || type === 'reset') return 'button'
+            return 'textbox'
+          }
+          if (element.isContentEditable) return 'textbox'
+          return tagName
+        }
+
+        const nameForElement = (element: HTMLElement) => {
+          return compactText(
+            element.getAttribute('aria-label')
+              || element.getAttribute('title')
+              || element.getAttribute('alt')
+              || element.getAttribute('placeholder')
+              || element.getAttribute('name')
+              || element.textContent,
+            240,
+          )
+        }
+
+        const valueForElement = (element: HTMLElement) => {
+          if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+            return compactText(element.value, 240)
+          }
+          return null
+        }
+
+        const isElementVisible = (element: HTMLElement) => {
+          const style = window.getComputedStyle(element)
+          if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
+            return false
+          }
+          const rect = element.getBoundingClientRect()
+          return rect.width > 0 && rect.height > 0
+        }
+
+        const isClickable = (element: HTMLElement) => {
+          const tagName = element.tagName.toLowerCase()
+          return tagName === 'a'
+            || tagName === 'button'
+            || element.getAttribute('role') === 'button'
+            || typeof element.onclick === 'function'
+            || element.tabIndex >= 0
+        }
+
+        const isEditable = (element: HTMLElement) => {
+          return element instanceof HTMLInputElement
+            || element instanceof HTMLTextAreaElement
+            || element instanceof HTMLSelectElement
+            || element.isContentEditable
+        }
+
+        const candidates = Array.from(document.querySelectorAll<HTMLElement>(
+          'a, button, input, textarea, select, summary, [role], [tabindex], [contenteditable="true"], [onclick]',
+        ))
+        const elements = []
+
+        for (const element of candidates) {
+          if (!isElementVisible(element)) continue
+          const rect = element.getBoundingClientRect()
+          const input = element instanceof HTMLInputElement ? element : null
+          elements.push({
+            element,
+            index: elements.length,
+            tagName: element.tagName.toLowerCase(),
+            role: roleForElement(element),
+            name: nameForElement(element),
+            text: compactText(element.textContent, 500),
+            value: valueForElement(element),
+            inputType: input?.type ?? null,
+            checked: input && (input.type === 'checkbox' || input.type === 'radio') ? input.checked : null,
+            disabled: Boolean((element as HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).disabled),
+            editable: isEditable(element),
+            clickable: isClickable(element),
+            bounds: {
+              x: Math.round(rect.x),
+              y: Math.round(rect.y),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+            },
+          })
+        }
+
+        const documentRevision = stableHash(JSON.stringify({
+          url: window.location.href,
+          elements: elements.map((element) => ({
+            index: element.index,
+            tagName: element.tagName,
+            role: element.role,
+            name: element.name,
+            text: element.text,
+            value: element.value,
+            inputType: element.inputType,
+            checked: element.checked,
+            disabled: element.disabled,
+            editable: element.editable,
+            clickable: element.clickable,
+            bounds: element.bounds,
+          })),
+        }))
+
+        const match = elements.find((element) => {
+          return `browser-element:${documentRevision}:${element.index}` === requestedRefId
+        })
+        if (!match) {
+          return { success: false as const, error: 'refId is stale or not visible' }
+        }
+        if (match.disabled) {
+          return { success: false as const, error: 'element is disabled' }
+        }
+        if (!(match.element instanceof HTMLSelectElement)) {
+          return { success: false as const, error: 'element is not a select' }
+        }
+        if (!Array.from(match.element.options).some((option) => option.value === requestedValue)) {
+          return { success: false as const, error: 'select option value not found' }
+        }
+
+        const existing = document.getElementById(TRACE_ID)
+        existing?.remove()
+
+        const trace = document.createElement('div')
+        trace.id = TRACE_ID
+        trace.setAttribute('aria-hidden', 'true')
+        trace.style.position = 'absolute'
+        trace.style.left = `${match.bounds.x + window.scrollX}px`
+        trace.style.top = `${match.bounds.y + window.scrollY}px`
+        trace.style.width = `${match.bounds.width}px`
+        trace.style.height = `${match.bounds.height}px`
+        trace.style.pointerEvents = 'none'
+        trace.style.boxSizing = 'border-box'
+        trace.style.border = '2px solid rgba(64, 148, 255, 0.95)'
+        trace.style.background = 'rgba(64, 148, 255, 0.14)'
+        trace.style.boxShadow = '0 0 0 4px rgba(64, 148, 255, 0.18)'
+        trace.style.borderRadius = '8px'
+        trace.style.zIndex = '2147483647'
+        trace.style.transition = 'opacity 160ms ease'
+        ;(document.body || document.documentElement).appendChild(trace)
+
+        window.setTimeout(() => {
+          trace.style.opacity = '0'
+          window.setTimeout(() => trace.remove(), 180)
+        }, traceDurationMs)
+
+        match.element.focus()
+        match.element.value = requestedValue
+        match.element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText', data: requestedValue }))
+        match.element.dispatchEvent(new Event('change', { bubbles: true }))
+        return { success: true as const, bounds: match.bounds, value: match.element.value }
+      },
+    })
+
+    const result = results[0]
+    if (result?.result?.success !== true) {
+      return { success: false, error: result?.result?.error ?? 'Page select failed' }
+    }
+
+    return {
+      success: true,
+      chromeTabId,
+      frameId: result.frameId,
+      refId,
+      value: result.result.value,
+      bounds: result.result.bounds,
+    }
+  } catch (error: any) {
+    return { success: false, error: error?.message || String(error) }
+  }
+}
+
+async function scrollPage(params: {
+  chromeTabId?: number
+  frameId?: number
+  refId?: string
+  deltaX?: number
+  deltaY?: number
+}): Promise<PageScrollResult> {
+  const chromeTabId = Number.isInteger(params.chromeTabId) ? params.chromeTabId : null
+  if (!chromeTabId || chromeTabId < 1) {
+    return { success: false, error: 'chromeTabId is required' }
+  }
+
+  const frameId = Number.isInteger(params.frameId) ? params.frameId! : 0
+  const refId = typeof params.refId === 'string' && params.refId.trim() ? params.refId.trim() : null
+  const deltaX = Number.isFinite(params.deltaX) ? params.deltaX! : 0
+  const deltaY = Number.isFinite(params.deltaY) ? params.deltaY! : 0
+  if (deltaX === 0 && deltaY === 0) {
+    return { success: false, error: 'deltaX or deltaY is required' }
+  }
+
+  try {
+    await chrome.tabs.get(chromeTabId)
+    const results = await chrome.scripting.executeScript({
+      target: frameId > 0 ? { tabId: chromeTabId, frameIds: [frameId] } : { tabId: chromeTabId },
+      args: [deltaX, deltaY, refId],
+      func: (requestedDeltaX: number, requestedDeltaY: number, requestedRefId: string | null) => {
+        const compactText = (value: string | null | undefined, maxLength: number) => {
+          return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, maxLength)
+        }
+
+        const stableHash = (value: string) => {
+          let hash = 2166136261
+          for (let i = 0; i < value.length; i += 1) {
+            hash ^= value.charCodeAt(i)
+            hash = Math.imul(hash, 16777619)
+          }
+          return (hash >>> 0).toString(36)
+        }
+
+        const attribute = (element: Element, name: string) => {
+          return compactText(element.getAttribute(name), 240)
+        }
+
+        const roleForElement = (element: HTMLElement) => {
+          const explicitRole = attribute(element, 'role')
+          if (explicitRole) return explicitRole
+          const tagName = element.tagName.toLowerCase()
+          if (tagName === 'a') return 'link'
+          if (tagName === 'button') return 'button'
+          if (tagName === 'select') return 'combobox'
+          if (tagName === 'textarea') return 'textbox'
+          if (tagName === 'input') {
+            const type = (element as HTMLInputElement).type || 'text'
+            if (type === 'checkbox') return 'checkbox'
+            if (type === 'radio') return 'radio'
+            if (type === 'button' || type === 'submit' || type === 'reset') return 'button'
+            return 'textbox'
+          }
+          if (element.isContentEditable) return 'textbox'
+          return tagName
+        }
+
+        const nameForElement = (element: HTMLElement) => {
+          return compactText(
+            element.getAttribute('aria-label')
+              || element.getAttribute('title')
+              || element.getAttribute('alt')
+              || element.getAttribute('placeholder')
+              || element.getAttribute('name')
+              || element.textContent,
+            240,
+          )
+        }
+
+        const valueForElement = (element: HTMLElement) => {
+          if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+            return compactText(element.value, 240)
+          }
+          return null
+        }
+
+        const isElementVisible = (element: HTMLElement) => {
+          const style = window.getComputedStyle(element)
+          if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
+            return false
+          }
+          const rect = element.getBoundingClientRect()
+          return rect.width > 0 && rect.height > 0
+        }
+
+        const isClickable = (element: HTMLElement) => {
+          const tagName = element.tagName.toLowerCase()
+          return tagName === 'a'
+            || tagName === 'button'
+            || element.getAttribute('role') === 'button'
+            || typeof element.onclick === 'function'
+            || element.tabIndex >= 0
+        }
+
+        const isEditable = (element: HTMLElement) => {
+          return element instanceof HTMLInputElement
+            || element instanceof HTMLTextAreaElement
+            || element instanceof HTMLSelectElement
+            || element.isContentEditable
+        }
+
+        let scroller: Element | Window = window
+        if (requestedRefId) {
+          const candidates = Array.from(document.querySelectorAll<HTMLElement>(
+            'a, button, input, textarea, select, summary, [role], [tabindex], [contenteditable="true"], [onclick]',
+          ))
+          const elements = []
+          for (const element of candidates) {
+            if (!isElementVisible(element)) continue
+            const rect = element.getBoundingClientRect()
+            const input = element instanceof HTMLInputElement ? element : null
+            elements.push({
+              element,
+              index: elements.length,
+              tagName: element.tagName.toLowerCase(),
+              role: roleForElement(element),
+              name: nameForElement(element),
+              text: compactText(element.textContent, 500),
+              value: valueForElement(element),
+              inputType: input?.type ?? null,
+              checked: input && (input.type === 'checkbox' || input.type === 'radio') ? input.checked : null,
+              disabled: Boolean((element as HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).disabled),
+              editable: isEditable(element),
+              clickable: isClickable(element),
+              bounds: {
+                x: Math.round(rect.x),
+                y: Math.round(rect.y),
+                width: Math.round(rect.width),
+                height: Math.round(rect.height),
+              },
+            })
+          }
+          const documentRevision = stableHash(JSON.stringify({
+            url: window.location.href,
+            elements: elements.map((element) => ({
+              index: element.index,
+              tagName: element.tagName,
+              role: element.role,
+              name: element.name,
+              text: element.text,
+              value: element.value,
+              inputType: element.inputType,
+              checked: element.checked,
+              disabled: element.disabled,
+              editable: element.editable,
+              clickable: element.clickable,
+              bounds: element.bounds,
+            })),
+          }))
+          const match = elements.find((element) => `browser-element:${documentRevision}:${element.index}` === requestedRefId)
+          if (!match) {
+            return { success: false as const, error: 'refId is stale or not visible' }
+          }
+          for (let current: HTMLElement | null = match.element; current; current = current.parentElement) {
+            const style = window.getComputedStyle(current)
+            const overflowX = style.overflowX
+            const overflowY = style.overflowY
+            const canScrollX = current.scrollWidth > current.clientWidth && ['auto', 'scroll', 'overlay'].includes(overflowX)
+            const canScrollY = current.scrollHeight > current.clientHeight && ['auto', 'scroll', 'overlay'].includes(overflowY)
+            if ((requestedDeltaX !== 0 && canScrollX) || (requestedDeltaY !== 0 && canScrollY)) {
+              scroller = current
+              break
+            }
+          }
+        }
+
+        if (scroller === window) {
+          window.scrollBy(requestedDeltaX, requestedDeltaY)
+        } else {
+          scroller.scrollBy(requestedDeltaX, requestedDeltaY)
+        }
+        const scrollX = scroller === window
+          ? Math.round(window.scrollX)
+          : Math.round((scroller as Element).scrollLeft)
+        const scrollY = scroller === window
+          ? Math.round(window.scrollY)
+          : Math.round((scroller as Element).scrollTop)
+        return {
+          success: true as const,
+          refId: requestedRefId ?? undefined,
+          scrollX,
+          scrollY,
+          viewport: {
+            width: window.innerWidth,
+            height: window.innerHeight,
+          },
+        }
+      },
+    })
+
+    const result = results[0]
+    if (result?.result?.success !== true) {
+      return { success: false, error: 'Page scroll failed' }
+    }
+
+    return {
+      success: true,
+      chromeTabId,
+      frameId: result.frameId,
+      refId: result.result.refId,
+      scrollX: result.result.scrollX,
+      scrollY: result.result.scrollY,
+      viewport: result.result.viewport,
+    }
   } catch (error: any) {
     return { success: false, error: error?.message || String(error) }
   }
@@ -1439,14 +3102,10 @@ async function toggleExtensionForActiveTab(): Promise<{ isConnected: boolean; st
 }
 
 async function disconnectEverything(): Promise<void> {
-  // Queue disconnect operation to serialize with other tab group operations
-  tabGroupQueue = tabGroupQueue.then(async () => {
-    const { tabs } = store.getState()
-    for (const tabId of tabs.keys()) {
-      await disconnectTab(tabId)
-    }
-  })
-  await tabGroupQueue
+  const { tabs } = store.getState()
+  for (const tabId of tabs.keys()) {
+    await disconnectTab(tabId)
+  }
   // WS connection is maintained - maintainConnection handles it
 }
 
@@ -1694,20 +3353,10 @@ chrome.runtime.onInstalled.addListener((details) => {
   }
 })
 
-function serializeTabs(tabs: Map<number, TabInfo>): string {
-  return JSON.stringify(Array.from(tabs.entries()))
-}
-
-store.subscribe((state, prevState) => {
+store.subscribe((state) => {
   logger.log(state)
   void updateIcons()
   updateContextMenuVisibility()
-  const tabsChanged = serializeTabs(state.tabs) !== serializeTabs(prevState.tabs)
-  if (tabsChanged) {
-    tabGroupQueue = tabGroupQueue.then(syncTabGroup).catch((e) => {
-      logger.debug('syncTabGroup error:', e)
-    })
-  }
 })
 
 logger.debug(`Using relay host: ${RELAY_HOST}, port: ${RELAY_PORT}`)
@@ -1768,38 +3417,8 @@ checkMemory()
 chrome.tabs.onRemoved.addListener(onTabRemoved)
 chrome.tabs.onActivated.addListener(onTabActivated)
 chrome.action.onClicked.addListener(onActionClicked)
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+chrome.tabs.onUpdated.addListener(() => {
   void updateIcons()
-  if (changeInfo.groupId !== undefined) {
-    // Queue tab group operations to serialize with syncTabGroup and disconnectEverything
-    tabGroupQueue = tabGroupQueue
-      .then(async () => {
-        // Query for playwriter group by title - no stale cached ID
-        const existingGroups = await chrome.tabGroups.query({ title: TAB_GROUP_TITLE })
-        const groupId = existingGroups[0]?.id
-        if (groupId === undefined) {
-          return
-        }
-        const { tabs } = store.getState()
-        if (changeInfo.groupId === groupId) {
-          if (!tabs.has(tabId) && !isRestrictedUrl(tab.url)) {
-            logger.debug('Tab manually added to playwriter group:', tabId)
-            await connectTab(tabId)
-          }
-        } else if (tabs.has(tabId)) {
-          const tabInfo = tabs.get(tabId)
-          if (tabInfo?.state === 'connecting') {
-            logger.debug('Tab removed from group while connecting, ignoring:', tabId)
-            return
-          }
-          logger.debug('Tab manually removed from playwriter group:', tabId)
-          await disconnectTab(tabId)
-        }
-      })
-      .catch((e) => {
-        logger.debug('onTabUpdated handler error:', e)
-      })
-  }
 })
 
 chrome.contextMenus?.onClicked.addListener(async (info, tab) => {

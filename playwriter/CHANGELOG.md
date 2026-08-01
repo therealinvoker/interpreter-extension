@@ -1,5 +1,73 @@
 # Changelog
 
+## 0.0.122
+
+1. **Browser skill removes shared-tab product wording** — agent instructions now describe extension-accessible live browser pages and claimed tabs instead of asking users to share tabs.
+
+## 0.0.121
+
+1. **Relay carries explicit browser tab control state** — tab inventory can now report whether a listed Chrome tab is merely observable or already claimed for control without requiring app code to infer that from legacy shared-tab fields.
+
+## 0.0.120
+
+1. **Relay preserves viewport screen bounds for page element inventory** — `/extension/page-elements` now carries the extension-reported viewport screen bounds through to Interpreter so overlay selection can attach Chrome page refs to selected regions.
+
+## 0.0.119
+
+1. **Relay allows tab reveal without page action permission** — `/extension/activate-tab` can focus an observed Chrome tab for user review while content reads, writes, claims, and page actions remain controlled by browser policy.
+
+## 0.0.118
+
+1. **Relay enforces browser read/write/action policy classes** — tab inventory and element inspection use read permission, type/select/navigation use write permission, and claim/click/scroll/trace/window-control paths use action permission.
+
+## 0.0.117
+
+1. **Relay can claim observed tabs for Playwright control** — `/extension/claim-tab` checks profile-specific browser policy, asks the extension to attach the requested Chrome tab, and returns the resulting target/session ids.
+
+## 0.0.116
+
+1. **Relay exposes page element select input** — `/extension/page-select` selects one exact option value on a policy-allowed browser select element, draws in-page feedback, and rejects stale refs before acting.
+
+## 0.0.115
+
+1. **Relay exposes page frame scrolling** — `/extension/page-scroll` scrolls one policy-allowed browser frame and returns the resulting viewport position.
+
+## 0.0.114
+
+1. **Relay exposes page element text input** — `/extension/page-type` replaces one policy-allowed editable browser element value, draws in-page feedback, and rejects stale refs before acting.
+
+## 0.0.113
+
+1. **Relay exposes page element click feedback** — `/extension/page-click` clicks one policy-allowed browser element ref, draws the same in-page trace feedback, and rejects stale refs before acting.
+
+## 0.0.112
+
+1. **Relay exposes page-local trace feedback** — `/extension/page-trace` draws a short-lived in-page browser control trace for a policy-allowed tab element or rectangle, and rejects stale element refs before drawing.
+
+## 0.0.111
+
+1. **Relay exposes opt-in page element inventory** — `/extension/page-elements` returns bounded read-only element refs, bounds, frame metadata, and document revision for a policy-allowed observed Chrome tab without adding that data to default status polling.
+
+## 0.0.110
+
+1. **Browser-control relay defaults to blocked without an app policy** — page control now requires an explicit allow-all or matching page policy instead of treating a missing policy as permission.
+
+## 0.0.109
+
+1. **Relay can activate observed browser tabs** — `/extension/activate-tab` asks the connected extension to focus a listed Chrome tab by `chromeTabId`, enabling future permission prompts and computer-control flows to reveal an observed page before claiming deeper control.
+
+## 0.0.108
+
+1. **Browser access policy now supports profile-specific rules** — the relay evaluates `profilePolicies` with the extension stable key, so Chrome profiles can have separate ask, deny, allow-all, or matching-page access behavior.
+
+## 0.0.107
+
+1. **Relay status now includes read-only browser tab inventory** — `/extension/status` and `/extensions/status` report Chrome windows and tabs separately from Playwright-visible targets, including whether each tab is currently shared and which target/session it maps to when applicable.
+
+## 0.0.106
+
+1. **Extension integration tests now load the unpacked extension reliably** — the test launcher removes Playwright's default `--disable-extensions` arg when it intentionally passes `--load-extension`, and browser discovery now recognizes the Playwright cache layout that installs `chrome-mac/Chromium.app`. The `Target.detachFromTarget` regression test now accepts current Chromium's `Not allowed` response while still proving the relay did not fail with its own `No tab found` routing error.
+
 ## 0.0.105
 
 1. **Browser skill now explains the missing-extension flow** — the bundled browser-control instructions now tell agents to send users to the Interpreter Chrome Web Store listing when the extension is not installed, then instruct them to click the extension on the target tab.

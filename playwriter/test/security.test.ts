@@ -134,7 +134,7 @@ describe('Security Tests', () => {
 
   it('should block cross-origin browser requests to /cli/* via Sec-Fetch-Site', async () => {
     const logger = createFileLogger()
-    server = await startPlayWriterCDPRelayServer({ port: TEST_PORT, logger })
+    server = await startPlayWriterCDPRelayServer({ port: TEST_PORT, logger, enableCliRoutes: true })
 
     // cross-site browser request → 403
     const crossSite = await httpRequest({
@@ -153,7 +153,7 @@ describe('Security Tests', () => {
 
   it('should block POST with non-JSON Content-Type (text/plain bypass)', async () => {
     const logger = createFileLogger()
-    server = await startPlayWriterCDPRelayServer({ port: TEST_PORT, logger })
+    server = await startPlayWriterCDPRelayServer({ port: TEST_PORT, logger, enableCliRoutes: true })
 
     // text/plain is the classic CORS preflight bypass
     const textPlain = await httpRequest({
@@ -179,7 +179,7 @@ describe('Security Tests', () => {
 
   it('should allow requests without Sec-Fetch-Site (Node.js/CLI clients)', async () => {
     const logger = createFileLogger()
-    server = await startPlayWriterCDPRelayServer({ port: TEST_PORT, logger })
+    server = await startPlayWriterCDPRelayServer({ port: TEST_PORT, logger, enableCliRoutes: true })
 
     // Node.js clients don't send Sec-Fetch-Site, only Content-Type: application/json.
     // Request should pass the middleware (will 404 because no session exists, which is fine).
@@ -193,7 +193,7 @@ describe('Security Tests', () => {
 
   it('should allow same-origin browser requests', async () => {
     const logger = createFileLogger()
-    server = await startPlayWriterCDPRelayServer({ port: TEST_PORT, logger })
+    server = await startPlayWriterCDPRelayServer({ port: TEST_PORT, logger, enableCliRoutes: true })
 
     const res = await httpRequest({
       path: '/cli/execute',
@@ -206,7 +206,7 @@ describe('Security Tests', () => {
   it('should enforce token on /cli/* when token mode is enabled', async () => {
     const secretToken = 'test-secret-token'
     const logger = createFileLogger()
-    server = await startPlayWriterCDPRelayServer({ port: TEST_PORT, token: secretToken, logger })
+    server = await startPlayWriterCDPRelayServer({ port: TEST_PORT, token: secretToken, logger, enableCliRoutes: true })
 
     // No token → 401
     const noToken = await httpRequest({
@@ -240,7 +240,7 @@ describe('Security Tests', () => {
 
   it('should not require token on /cli/* when no token is configured', async () => {
     const logger = createFileLogger()
-    server = await startPlayWriterCDPRelayServer({ port: TEST_PORT, logger })
+    server = await startPlayWriterCDPRelayServer({ port: TEST_PORT, logger, enableCliRoutes: true })
 
     // Without token mode, /cli/sessions should work with just proper headers
     const res = await httpRequest({
@@ -249,5 +249,23 @@ describe('Security Tests', () => {
       headers: {},
     })
     expect(res.status).toBe(200)
+  })
+
+  it('should not expose /cli/* unless CLI routes are explicitly enabled', async () => {
+    const logger = createFileLogger()
+    server = await startPlayWriterCDPRelayServer({ port: TEST_PORT, logger })
+
+    const sessions = await httpRequest({
+      path: '/cli/sessions',
+      method: 'GET',
+      headers: {},
+    })
+    expect(sessions.status).toBe(404)
+
+    const execute = await httpRequest({
+      path: '/cli/execute',
+      headers: { 'Content-Type': 'application/json' },
+    })
+    expect(execute.status).toBe(404)
   })
 })
