@@ -54,4 +54,4 @@ jobs:
       - name: Build Playwriter and the extension
         run: pnpm build
       - name: Run the Playwriter test suite
-        run: pnpm test:ci
+        run: xvfb-run --auto-servernum env HEADFUL=1 pnpm test:ci
