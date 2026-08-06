@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.103
+
+### Bug Fixes
+
+- **Make extension builds independent of cdnjs availability**: Prism 1.29.0 and its Bash grammar are now vendored with their MIT license and staged locally during builds, preventing transient CDN failures from breaking desktop and extension CI.
+
 ## 0.0.102
 
 ### Changes

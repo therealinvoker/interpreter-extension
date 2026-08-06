@@ -1,47 +1,22 @@
-// Downloads Prism.js assets into <outDir>/src/ for the welcome page.
-// Chrome extension CSP blocks external scripts, so we bundle them locally.
-import https from 'node:https'
+// Stages vendored Prism.js assets into <outDir>/src/ for the welcome page.
+// Chrome extension CSP blocks external scripts, and builds must not depend on
+// a third-party CDN being available.
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const BASE = 'https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/'
 const outDir = process.env.PLAYWRITER_EXTENSION_DIST || 'dist'
 const DEST = path.join(outDir, 'src')
+const SOURCE = fileURLToPath(new URL('../vendor/prism-1.29.0/', import.meta.url))
 
-const files: [string, string][] = [
-  ['prism.min.js', 'prism.min.js'],
-  ['components/prism-bash.min.js', 'prism-bash.min.js'],
-]
+const files = ['prism.min.js', 'prism-bash.min.js']
 
-function download(url: string, dest: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    https
-      .get(url, (res) => {
-        if (res.statusCode !== 200) {
-          reject(new Error(`Failed to download ${url}: ${res.statusCode}`))
-          return
-        }
-        const chunks: Buffer[] = []
-        res.on('data', (chunk: Buffer) => {
-          chunks.push(chunk)
-        })
-        res.on('end', () => {
-          fs.writeFileSync(dest, Buffer.concat(chunks))
-          resolve()
-        })
-        res.on('error', reject)
-      })
-      .on('error', reject)
-  })
-}
-
-async function main() {
-  await Promise.all(
-    files.map(([src, dest]) => {
-      return download(BASE + src, path.join(DEST, dest))
-    }),
-  )
-  console.log(`Downloaded ${files.length} Prism.js files to ${DEST}`)
+function main() {
+  fs.mkdirSync(DEST, { recursive: true })
+  for (const file of files) {
+    fs.copyFileSync(path.join(SOURCE, file), path.join(DEST, file))
+  }
+  console.log(`Staged ${files.length} vendored Prism.js files to ${DEST}`)
 }
 
 main()
