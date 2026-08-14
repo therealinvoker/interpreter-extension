@@ -9,3 +9,12 @@ This project is maintained as a derivative of
 upstream remote and attribution when changing shared Playwriter code, and send
 generally useful fixes upstream when practical. Interpreter-specific extension
 and relay protocol changes may remain in this repository.
+
+## Developer Certificate of Origin
+
+This repository uses the
+[Developer Certificate of Origin 1.1](https://developercertificate.org/) and
+does not require a contributor license agreement. Sign off each commit with
+`git commit -s` (or add a `Signed-off-by:` trailer yourself). The sign-off
+certifies that you have the right to submit the contribution under the MIT
+License used by this repository.

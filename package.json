@@ -22,9 +22,13 @@
     "vite": "^8.0.3",
     "vitest": "^4.0.8"
   },
-  "repository": "https://github.com/remorses/",
+  "repository": "https://github.com/openinterpreter/interpreter-extension",
+  "homepage": "https://github.com/openinterpreter/interpreter-extension#readme",
+  "bugs": {
+    "url": "https://github.com/openinterpreter/interpreter-extension/issues"
+  },
   "author": "remorses <beats.by.morse@gmail.com>",
-  "license": "",
+  "license": "MIT",
   "dependencies": {
     "mcp-extension": "workspace:^"
   },

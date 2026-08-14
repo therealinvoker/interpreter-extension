@@ -312,3 +312,9 @@ If Interpreter Chrome Extension is useful to you, consider [sponsoring the proje
 
 - If all pages return `about:blank`, restart Chrome (Chrome bug in `chrome.debugger` API)
 - Browser may switch to light mode on connect ([Playwright issue](https://github.com/microsoft/playwright/issues/37627))
+
+## License and security
+
+This repository is MIT-licensed and preserves Playwriter's upstream history
+and attribution. See [LICENSE](LICENSE) and [NOTICE](NOTICE). Report security
+issues privately as described in [SECURITY.md](SECURITY.md).
