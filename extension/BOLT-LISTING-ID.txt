@@ -1,0 +1,5 @@
+Bolt Chrome Extension — new Chrome Web Store listing identity
+Extension ID (predetermined via bolt-key.pem): ndndcckllfokpejkgnecbjpaplbbgmip
+Store URL (after publish): https://chromewebstore.google.com/detail/bolt-chrome-extension/ndndcckllfokpejkgnecbjpaplbbgmip
+First upload: the built ZIP includes bolt-key.pem (as key.pem) at the extension root so Google locks in this exact ID.
+Keep bolt-key.pem private (gitignored). Needed only to reproduce this ID for a fresh first-upload; not needed for CWS updates.

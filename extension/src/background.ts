@@ -14,6 +14,59 @@ import { handleGhostBrowserCommand, type GhostBrowserCommandParams } from 'playw
 
 const RELAY_HOST = '127.0.0.1'
 const RELAY_PORT = Number(process.env.PLAYWRITER_PORT) || 19988
+// Desktop overlay's summon listener (relay port + 1). When the user toggles a
+// tab to the connected state we ping this so the overlay launches immediately,
+// independent of relay/CDP state syncing.
+const OVERLAY_SUMMON_PORT = RELAY_PORT + 1
+
+function summonOverlay(tab?: chrome.tabs.Tab): void {
+  // Fire-and-forget; the desktop app may not be running, which is fine. Include
+  // the connected tab's URL/title so the desktop can decide the permission card
+  // without depending on relay state (which is empty when no agent is driving).
+  void fetch(`http://${RELAY_HOST}:${OVERLAY_SUMMON_PORT}/summon`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ url: tab?.url ?? null, title: tab?.title ?? null }),
+    signal: AbortSignal.timeout(2000),
+  }).catch(() => {})
+}
+
+// Keep the desktop overlay's input placeholder ("What's next in the <tab> tab?")
+// live: the relay's cached tab state only refreshes on window-focus changes, so
+// push the focused window's active tab whenever it changes (in-Chrome tab
+// switches, title/url updates, window focus). Pushed directly (no setTimeout —
+// MV3 can suspend the worker before a short timer fires) and de-duped by
+// url+title; the desktop only applies it while the overlay targets a browser.
+//
+// IMPORTANT: prefer the tab object carried by the event (onActivated's tabId,
+// onUpdated's tab) over re-querying `{active:true}`. A query inside onActivated
+// can resolve against stale state and return the tab being *left*, which — with
+// the de-dup — makes the placeholder lag one switch behind.
+let lastActiveTabPushKey = ''
+async function pushTab(tab: chrome.tabs.Tab | null | undefined): Promise<void> {
+  if (!tab) {
+    return
+  }
+  const key = `${tab.url ?? ''}\u0000${tab.title ?? ''}`
+  if (key === lastActiveTabPushKey) {
+    return
+  }
+  lastActiveTabPushKey = key
+  await fetch(`http://${RELAY_HOST}:${OVERLAY_SUMMON_PORT}/active-tab`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ url: tab.url ?? null, title: tab.title ?? null }),
+    signal: AbortSignal.timeout(2000),
+  }).catch(() => {})
+}
+async function pushActiveTabNow(): Promise<void> {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+    await pushTab(tab)
+  } catch {
+    // best-effort only
+  }
+}
 
 type NavigatorWithUaData = Navigator & {
   userAgentData?: {
@@ -170,7 +223,7 @@ class ConnectionManager {
     }
 
     if (store.getState().connectionState === 'extension-replaced') {
-      throw new Error('Another Interpreter Chrome Extension is already connected')
+      throw new Error('Another Bolt Chrome Extension is already connected')
     }
 
     // Reuse in-progress connection attempt - prevents races between user clicks and maintain loop
@@ -501,7 +554,7 @@ class ConnectionManager {
       store.setState({
         tabs: new Map(),
         connectionState: 'extension-replaced',
-        errorText: 'Another Interpreter Chrome Extension took over the connection',
+        errorText: 'Another Bolt Chrome Extension took over the connection',
       })
       return
     }
@@ -511,7 +564,7 @@ class ConnectionManager {
       store.setState({
         tabs: new Map(),
         connectionState: 'extension-replaced',
-        errorText: 'Another Interpreter Chrome Extension is actively in use',
+        errorText: 'Another Bolt Chrome Extension is actively in use',
       })
       return
     }
@@ -617,7 +670,7 @@ class ConnectionManager {
         if (error.message === 'Extension Already In Use') {
           store.setState({
             connectionState: 'extension-replaced',
-            errorText: 'Another Interpreter Chrome Extension is actively in use',
+            errorText: 'Another Bolt Chrome Extension is actively in use',
           })
         } else {
           store.setState({ connectionState: 'idle' })
@@ -3023,7 +3076,7 @@ async function connectTab(tabId: number): Promise<void> {
     // Extension in use: set global 'extension-replaced' state to enter polling mode
     const isExtensionInUse =
       error.message === 'Extension Already In Use' ||
-      error.message === 'Another Interpreter Chrome Extension is already connected'
+      error.message === 'Another Bolt Chrome Extension is already connected'
 
     const isWsError =
       error.message === 'Server not available' ||
@@ -3038,7 +3091,7 @@ async function connectTab(tabId: number): Promise<void> {
         return {
           tabs: newTabs,
           connectionState: 'extension-replaced',
-          errorText: 'Another Interpreter Chrome Extension is actively in use',
+          errorText: 'Another Bolt Chrome Extension is actively in use',
         }
       })
     } else if (isWsError) {
@@ -3120,7 +3173,8 @@ async function resetDebugger(): Promise<void> {
 
 // Our extension IDs - allow attaching to our own extension pages for debugging
 const OUR_EXTENSION_IDS = [
-  'bboaaphdpllilofamfpommlbafpellnb', // Production extension (Chrome Web Store)
+  'ndndcckllfokpejkgnecbjpaplbbgmip', // Bolt production extension (Chrome Web Store)
+  'bboaaphdpllilofamfpommlbafpellnb', // Interpreter production extension (legacy, kept for transition)
   'pebbngnfojnignonigcnkdilknapkgid', // Dev extension (stable ID from manifest key)
 ]
 
@@ -3153,7 +3207,7 @@ const icons = {
       '48': '/icons/icon-green-48.png',
       '128': '/icons/icon-green-128.png',
     },
-    title: 'This tab is connected to Interpreter - Click to disconnect',
+    title: 'This tab is connected to Bolt - Click to disconnect',
     badgeText: '',
     badgeColor: [64, 64, 64, 255] as [number, number, number, number],
   },
@@ -3164,7 +3218,7 @@ const icons = {
       '48': '/icons/icon-gray-48.png',
       '128': '/icons/icon-gray-128.png',
     },
-    title: 'Waiting for the local Interpreter relay. Start the app, then try again.',
+    title: 'Waiting for the local Bolt relay. Start the app, then try again.',
     badgeText: '...',
     badgeColor: [64, 64, 64, 255] as [number, number, number, number],
   },
@@ -3175,7 +3229,7 @@ const icons = {
       '48': '/icons/icon-blue-48.png',
       '128': '/icons/icon-blue-128.png',
     },
-    title: 'Connecting this tab to Interpreter...',
+    title: 'Connecting this tab to Bolt...',
     badgeText: '...',
     badgeColor: [64, 64, 64, 255] as [number, number, number, number],
   },
@@ -3186,7 +3240,7 @@ const icons = {
       '48': '/icons/icon-black-48.png',
       '128': '/icons/icon-black-128.png',
     },
-    title: 'Interpreter is ready. Click to connect this tab.',
+    title: 'Bolt is ready. Click to connect this tab.',
     badgeText: '',
     badgeColor: [64, 64, 64, 255] as [number, number, number, number],
   },
@@ -3208,7 +3262,7 @@ const icons = {
       '48': '/icons/icon-red-48.png',
       '128': '/icons/icon-red-128.png',
     },
-    title: 'Another Interpreter Chrome Extension connected - Click to retry',
+    title: 'Another Bolt Chrome Extension connected - Click to retry',
     badgeText: '!',
     badgeColor: [220, 38, 38, 255] as [number, number, number, number],
   },
@@ -3282,6 +3336,14 @@ async function onTabRemoved(tabId: number): Promise<void> {
 
 async function onTabActivated(activeInfo: chrome.tabs.TabActiveInfo): Promise<void> {
   store.setState({ currentTabId: activeInfo.tabId })
+  // Use the authoritative tab id from the event (not a query, which can race and
+  // return the tab being left — causing a one-switch lag in the placeholder).
+  try {
+    const tab = await chrome.tabs.get(activeInfo.tabId)
+    void pushTab(tab)
+  } catch {
+    // tab may have been closed; ignore
+  }
 }
 
 async function onActionClicked(tab: chrome.tabs.Tab): Promise<void> {
@@ -3302,6 +3364,7 @@ async function onActionClicked(tab: chrome.tabs.Tab): Promise<void> {
   if (connectionState === 'extension-replaced') {
     logger.debug('Clearing extension-replaced state, attempting to reconnect')
     store.setState({ connectionState: 'idle', errorText: undefined })
+    summonOverlay(tab)
     await connectTab(tab.id)
     return
   }
@@ -3320,6 +3383,7 @@ async function onActionClicked(tab: chrome.tabs.Tab): Promise<void> {
   if (tabInfo?.state === 'connected') {
     await disconnectTab(tab.id)
   } else {
+    summonOverlay(tab)
     await connectTab(tab.id)
   }
 }
@@ -3333,7 +3397,7 @@ chrome.contextMenus
   .finally(() => {
     chrome.contextMenus?.create({
       id: 'playwriter-pin-element',
-      title: 'Copy Interpreter Element Reference',
+      title: 'Copy Bolt Element Reference',
       contexts: ['all'],
       visible: false,
     })
@@ -3417,8 +3481,17 @@ checkMemory()
 chrome.tabs.onRemoved.addListener(onTabRemoved)
 chrome.tabs.onActivated.addListener(onTabActivated)
 chrome.action.onClicked.addListener(onActionClicked)
-chrome.tabs.onUpdated.addListener(() => {
+chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
   void updateIcons()
+  // Keep the overlay placeholder current when the active tab's title/url changes.
+  // Use the tab object the event provides (authoritative, no query race).
+  if (tab?.active && (changeInfo.title !== undefined || changeInfo.url !== undefined)) {
+    void pushTab(tab)
+  }
+})
+chrome.windows.onFocusChanged.addListener(() => {
+  // Switching windows (or back to Chrome) changes the focused active tab.
+  void pushActiveTabNow()
 })
 
 chrome.contextMenus?.onClicked.addListener(async (info, tab) => {

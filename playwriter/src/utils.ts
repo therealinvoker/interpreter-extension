@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url'
 
 // Extension IDs used for validation and Chrome flag commands.
 export const EXTENSION_IDS = [
-  'bboaaphdpllilofamfpommlbafpellnb', // Production (Chrome Web Store)
+  'ndndcckllfokpejkgnecbjpaplbbgmip', // Bolt (Chrome Web Store) — current production listing
+  'bboaaphdpllilofamfpommlbafpellnb', // Interpreter (Chrome Web Store) — legacy, kept trusted for transition
   'pebbngnfojnignonigcnkdilknapkgid', // Dev extension (stable ID from manifest key)
 ]
 
