@@ -1,5 +1,16 @@
 export type BrowserAccessPermissionKind = 'read' | 'write' | 'action'
 
+// Product name used in browser-access denial messages. Defaults to 'Interpreter'
+// (upstream/open-source brand); the host can override it at relay startup via
+// setBrowserAccessPolicyProductName so the relay reports the active brand
+// (e.g. 'Bolt'). Keeping a default preserves existing behaviour and unit tests.
+let configuredProductName = 'Interpreter'
+
+export function setBrowserAccessPolicyProductName(name: string | null | undefined): void {
+  const trimmed = typeof name === 'string' ? name.trim() : ''
+  configuredProductName = trimmed.length > 0 ? trimmed : 'Interpreter'
+}
+
 export type BrowserAccessRule = {
   mode: 'ask' | 'deny' | 'all' | 'allowList'
   allowedPatterns: string[]
@@ -157,7 +168,7 @@ export function formatBrowserAccessPolicyErrorMessage(params: {
     : ''
 
   return [
-    `Interpreter browser settings blocked this request.`,
+    `${configuredProductName} browser settings blocked this request.`,
     `Cannot ${actionLabel} "${params.attemptedUrl}" because it does not match the allowed page rules (${patternSummary}).`,
     currentUrlHint,
     'Change this in Settings > Browser.',
