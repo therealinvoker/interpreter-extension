@@ -47,7 +47,7 @@ async function pushTab(tab: chrome.tabs.Tab | null | undefined): Promise<void> {
   if (!tab) {
     return
   }
-  const key = `${tab.url ?? ''}\u0000${tab.title ?? ''}`
+  const key = `${tab.id ?? ''}\u0000${tab.url ?? ''}\u0000${tab.title ?? ''}`
   if (key === lastActiveTabPushKey) {
     return
   }
@@ -55,7 +55,8 @@ async function pushTab(tab: chrome.tabs.Tab | null | undefined): Promise<void> {
   await fetch(`http://${RELAY_HOST}:${OVERLAY_SUMMON_PORT}/active-tab`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ url: tab.url ?? null, title: tab.title ?? null }),
+    // tabId/windowId let the overlay stay pinned to one tab, not just its window.
+    body: JSON.stringify({ url: tab.url ?? null, title: tab.title ?? null, tabId: tab.id ?? null, windowId: tab.windowId ?? null }),
     signal: AbortSignal.timeout(2000),
   }).catch(() => {})
 }
@@ -366,6 +367,7 @@ class ConnectionManager {
               skipAttachedEvent: true,
               shareSource: 'auto-created',
             })
+            await setAgentTabGroup({ chromeTabId: tab.id, working: false })
             logger.debug('Initial tab created and connected:', tab.id, 'sessionId:', sessionId)
             sendMessage({
               id: message.id,
@@ -421,6 +423,14 @@ class ConnectionManager {
         sendMessage({
           id: message.id,
           result: await activateBrowserTab(message.params ?? {}),
+        })
+        return
+      }
+
+      if (message.method === 'setAgentTabGroup') {
+        sendMessage({
+          id: message.id,
+          result: await setAgentTabGroup(message.params ?? {}),
         })
         return
       }
@@ -896,6 +906,77 @@ async function activateBrowserTab(params: {
   }
 }
 
+// The tab a Bolt overlay agent is working on sits in this group. While the run
+// is going the group collapses once the user moves to another tab; when it ends
+// the group stays expanded so the result is easy to find.
+const AGENT_TAB_GROUP_TITLE = 'Bolt Agent'
+const workingAgentGroupIds = new Set<number>()
+
+async function findAgentTabGroup(windowId: number): Promise<chrome.tabGroups.TabGroup | undefined> {
+  const groups = await chrome.tabGroups.query({ windowId, title: AGENT_TAB_GROUP_TITLE })
+  return groups[0]
+}
+
+async function setAgentTabGroup(params: {
+  chromeTabId?: number
+  grouped?: boolean
+  working?: boolean
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const chromeTabId = Number.isInteger(params.chromeTabId) ? params.chromeTabId : null
+  if (!chromeTabId || chromeTabId < 1) {
+    return { success: false, error: 'chromeTabId is required' }
+  }
+
+  try {
+    const tab = await chrome.tabs.get(chromeTabId)
+    if (params.grouped === false) {
+      if (tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
+        const group = await chrome.tabGroups.get(tab.groupId)
+        // Leave a group the user made themselves alone.
+        if (group.title === AGENT_TAB_GROUP_TITLE) {
+          await chrome.tabs.ungroup(chromeTabId)
+        }
+      }
+      return { success: true }
+    }
+
+    const existing = await findAgentTabGroup(tab.windowId)
+    const groupId = tab.groupId === existing?.id
+      ? existing.id
+      : await chrome.tabs.group(existing
+        ? { groupId: existing.id, tabIds: chromeTabId }
+        : { tabIds: chromeTabId, createProperties: { windowId: tab.windowId } })
+    await chrome.tabGroups.update(groupId, {
+      title: AGENT_TAB_GROUP_TITLE,
+      color: 'blue',
+      collapsed: false,
+    })
+    if (params.working === false) {
+      workingAgentGroupIds.delete(groupId)
+    } else {
+      workingAgentGroupIds.add(groupId)
+    }
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error?.message || String(error) }
+  }
+}
+
+async function collapseAgentTabGroupOutside(activeTab: chrome.tabs.Tab): Promise<void> {
+  if (activeTab.windowId === undefined) {
+    return
+  }
+  try {
+    const group = await findAgentTabGroup(activeTab.windowId)
+    if (group && workingAgentGroupIds.has(group.id) && !group.collapsed && activeTab.groupId !== group.id) {
+      await chrome.tabGroups.update(group.id, { collapsed: true })
+    }
+  } catch (error) {
+    // Chrome rejects group edits mid tab-drag; the next switch retries.
+    logger.debug('Could not collapse the Bolt Agent tab group:', error)
+  }
+}
+
 async function claimBrowserTab(params: {
   chromeTabId?: number
 }): Promise<{
@@ -1316,6 +1397,9 @@ async function getPageElementInventory(params: {
             },
           })
         }
+        // Only structural fields: bounds/text/value change on scroll, animation, and
+        // typing, which would invalidate every ref between inspect and act. Every
+        // resolver below must hash the same fields.
         const documentRevision = stableHash(JSON.stringify({
           url: window.location.href,
           elements: elements.map((element) => ({
@@ -1323,14 +1407,10 @@ async function getPageElementInventory(params: {
             tagName: element.tagName,
             role: element.role,
             name: element.name,
-            text: element.text,
-            value: element.value,
             inputType: element.inputType,
-            checked: element.checked,
             disabled: element.disabled,
             editable: element.editable,
             clickable: element.clickable,
-            bounds: element.bounds,
           })),
         }))
         for (const element of elements) {
@@ -1558,14 +1638,10 @@ async function drawPageTrace(params: {
               tagName: element.tagName,
               role: element.role,
               name: element.name,
-              text: element.text,
-              value: element.value,
               inputType: element.inputType,
-              checked: element.checked,
               disabled: element.disabled,
               editable: element.editable,
               clickable: element.clickable,
-              bounds: element.bounds,
             })),
           }))
 
@@ -1785,14 +1861,10 @@ async function clickPageElement(params: {
             tagName: element.tagName,
             role: element.role,
             name: element.name,
-            text: element.text,
-            value: element.value,
             inputType: element.inputType,
-            checked: element.checked,
             disabled: element.disabled,
             editable: element.editable,
             clickable: element.clickable,
-            bounds: element.bounds,
           })),
         }))
 
@@ -2016,14 +2088,10 @@ async function typePageElement(params: {
             tagName: element.tagName,
             role: element.role,
             name: element.name,
-            text: element.text,
-            value: element.value,
             inputType: element.inputType,
-            checked: element.checked,
             disabled: element.disabled,
             editable: element.editable,
             clickable: element.clickable,
-            bounds: element.bounds,
           })),
         }))
 
@@ -2250,14 +2318,10 @@ async function selectPageElement(params: {
             tagName: element.tagName,
             role: element.role,
             name: element.name,
-            text: element.text,
-            value: element.value,
             inputType: element.inputType,
-            checked: element.checked,
             disabled: element.disabled,
             editable: element.editable,
             clickable: element.clickable,
-            bounds: element.bounds,
           })),
         }))
 
@@ -2473,14 +2537,10 @@ async function scrollPage(params: {
               tagName: element.tagName,
               role: element.role,
               name: element.name,
-              text: element.text,
-              value: element.value,
               inputType: element.inputType,
-              checked: element.checked,
               disabled: element.disabled,
               editable: element.editable,
               clickable: element.clickable,
-              bounds: element.bounds,
             })),
           }))
           const match = elements.find((element) => `browser-element:${documentRevision}:${element.index}` === requestedRefId)
@@ -2688,6 +2748,7 @@ async function handleCommand(msg: ExtensionCommandMessage): Promise<any> {
       logger.debug('Created tab:', tab.id, 'waiting for it to load...')
       await sleep(100)
       const { targetInfo } = await attachTab(tab.id, { shareSource: 'agent-created' })
+      await setAgentTabGroup({ chromeTabId: tab.id, working: false })
       return { targetId: targetInfo.targetId } satisfies Protocol.Target.CreateTargetResponse
     }
 
@@ -3341,6 +3402,7 @@ async function onTabActivated(activeInfo: chrome.tabs.TabActiveInfo): Promise<vo
   try {
     const tab = await chrome.tabs.get(activeInfo.tabId)
     void pushTab(tab)
+    void collapseAgentTabGroupOutside(tab)
   } catch {
     // tab may have been closed; ignore
   }

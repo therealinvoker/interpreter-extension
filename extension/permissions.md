@@ -32,6 +32,10 @@ In production, the extension functions perfectly without the tabs permission bec
 
 The build process (vite.config.mts) automatically removes this permission when TESTING environment variable is not set.
 
+### tabGroups
+
+Used to place the tab an agent is working on into a "Bolt Agent" tab group, collapsed while the user is on another tab, so the user can see which tab the agent is driving and keep it out of the way. The tab is ungrouped when the agent finishes.
+
 ### host_permissions (<all_urls>)
 
 Required to attach the debugger to tabs on any domain the user chooses to automate. This permission does not allow the extension to modify page content or inject scripts - it only enables CDP debugger attachment for automation. Users need this flexibility to test and automate workflows across all websites.

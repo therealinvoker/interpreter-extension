@@ -27,6 +27,7 @@ import * as relayState from './relay-state.js'
 import {
   doesBrowserAccessPolicyAllowUrl,
   formatBrowserAccessPolicyErrorMessage,
+  setBrowserAccessPolicyProductName,
   type BrowserAccessPermissionKind,
   type BrowserAccessPolicy,
 } from './browser-access-policy.js'
@@ -77,6 +78,7 @@ export async function startPlayWriterCDPRelayServer({
   cdpLogger,
   enableCliRoutes = false,
   getAccessPolicy,
+  productName,
 }: {
   port?: number
   host?: string
@@ -85,7 +87,11 @@ export async function startPlayWriterCDPRelayServer({
   cdpLogger?: CdpLogger
   enableCliRoutes?: boolean
   getAccessPolicy?: () => BrowserAccessPolicy
+  productName?: string
 } = {}): Promise<RelayServer> {
+  // Report the host's active brand in browser-access denial messages (defaults
+  // to 'Interpreter' when the host does not provide one).
+  setBrowserAccessPolicyProductName(productName)
   const emitter = new EventEmitter()
   const store = relayState.createRelayStore()
   const extensionDownloadBehavior = new Map<string, Protocol.Browser.SetDownloadBehaviorRequest>()
@@ -1381,6 +1387,40 @@ export async function startPlayWriterCDPRelayServer({
       })
     } catch (error: any) {
       logger?.error('Activate tab endpoint error:', error)
+      return c.json({ success: false, error: error.message || String(error) }, 500)
+    }
+  })
+
+  app.post('/extension/agent-tab-group', async (c) => {
+    try {
+      const body = (await c.req.json()) as {
+        extensionId?: string
+        chromeTabId?: number
+        grouped?: boolean
+        working?: boolean
+      }
+      const { extensionId, chromeTabId, grouped, working } = body
+      if (typeof chromeTabId !== 'number' || !Number.isInteger(chromeTabId) || chromeTabId < 1) {
+        return c.json({ success: false, error: 'chromeTabId is required' }, 400)
+      }
+      const extension = getExtensionConnection(extensionId)
+      if (!extension) {
+        return c.json({ success: false, error: 'Extension not connected' }, 400)
+      }
+
+      const result = await sendToExtension({
+        extensionId: extension.id,
+        method: 'setAgentTabGroup',
+        params: { chromeTabId, grouped: grouped !== false, working: working !== false },
+        timeout: 5_000,
+      }) as { success?: boolean; error?: string }
+
+      return c.json({
+        success: result.success === true,
+        error: result.error,
+      })
+    } catch (error: any) {
+      logger?.error('Agent tab group endpoint error:', error)
       return c.json({ success: false, error: error.message || String(error) }, 500)
     }
   })
