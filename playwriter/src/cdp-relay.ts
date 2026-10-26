@@ -27,9 +27,11 @@ import * as relayState from './relay-state.js'
 import {
   doesBrowserAccessPolicyAllowUrl,
   formatBrowserAccessPolicyErrorMessage,
+  getBrowserAccessRuleMode,
   setBrowserAccessPolicyProductName,
   type BrowserAccessPermissionKind,
   type BrowserAccessPolicy,
+  type BrowserAccessRequest,
 } from './browser-access-policy.js'
 
 /**
@@ -78,6 +80,7 @@ export async function startPlayWriterCDPRelayServer({
   cdpLogger,
   enableCliRoutes = false,
   getAccessPolicy,
+  requestAccess,
   productName,
 }: {
   port?: number
@@ -87,6 +90,11 @@ export async function startPlayWriterCDPRelayServer({
   cdpLogger?: CdpLogger
   enableCliRoutes?: boolean
   getAccessPolicy?: () => BrowserAccessPolicy
+  /**
+   * Asks the user to allow a URL the policy leaves at "ask". Resolve true once
+   * the host has granted access (so getAccessPolicy now allows it).
+   */
+  requestAccess?: (request: BrowserAccessRequest) => Promise<boolean>
   productName?: string
 } = {}): Promise<RelayServer> {
   // Report the host's active brand in browser-access denial messages (defaults
@@ -145,7 +153,7 @@ export async function startPlayWriterCDPRelayServer({
     return isTargetAllowedByPolicy(target.targetInfo, policyProfileId, permissionKind) ? null : target
   }
 
-  const assertAllowedUrlForPolicy = ({
+  const assertAllowedUrlForPolicy = async ({
     attemptedUrl,
     action,
     currentUrl,
@@ -157,10 +165,26 @@ export async function startPlayWriterCDPRelayServer({
     currentUrl?: string | null
     policyProfileId?: string | null
     permissionKind?: BrowserAccessPermissionKind
-  }): void => {
-    const currentPolicy = getCurrentAccessPolicy()
+  }): Promise<void> => {
+    let currentPolicy = getCurrentAccessPolicy()
     if (doesBrowserAccessPolicyAllowUrl(currentPolicy, attemptedUrl, policyProfileId, permissionKind)) {
       return
+    }
+    if (
+      requestAccess
+      && getBrowserAccessRuleMode(currentPolicy, policyProfileId, permissionKind) === 'ask'
+      && /^https?:/i.test(attemptedUrl)
+    ) {
+      let granted = false
+      try {
+        granted = await requestAccess({ url: attemptedUrl, action, permissionKind, profileId: policyProfileId ?? null })
+      } catch (error) {
+        logger?.error('Browser access request failed:', error)
+      }
+      currentPolicy = getCurrentAccessPolicy()
+      if (granted && doesBrowserAccessPolicyAllowUrl(currentPolicy, attemptedUrl, policyProfileId, permissionKind)) {
+        return
+      }
     }
     throw new Error(
       formatBrowserAccessPolicyErrorMessage({
@@ -458,8 +482,11 @@ export async function startPlayWriterCDPRelayServer({
       windows: inventory.windows
         .map((window) => ({
           ...window,
+          // "ask" lists every tab so the agent can name one; reading or acting
+          // on it still goes through the approval prompt.
           tabs: window.tabs.filter((tab) => (
-            doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), tab.url, policyProfileId, permissionKind)
+            getBrowserAccessRuleMode(getCurrentAccessPolicy(), policyProfileId, permissionKind) === 'ask'
+            || doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), tab.url, policyProfileId, permissionKind)
           )),
         }))
         .filter((window) => window.tabs.length > 0),
@@ -1059,7 +1086,7 @@ export async function startPlayWriterCDPRelayServer({
       case 'Target.createTarget': {
         const createTargetParams = params as Protocol.Target.CreateTargetRequest | undefined
         const targetUrl = createTargetParams?.url || 'about:blank'
-        assertAllowedUrlForPolicy({
+        await assertAllowedUrlForPolicy({
           attemptedUrl: targetUrl,
           action: 'open',
           policyProfileId,
@@ -1076,7 +1103,7 @@ export async function startPlayWriterCDPRelayServer({
         const closeTargetParams = params as Protocol.Target.CloseTargetRequest | undefined
         const target = Array.from(connectedTargets.values()).find((entry) => entry.targetId === closeTargetParams?.targetId)
         if (target) {
-          assertAllowedUrlForPolicy({
+          await assertAllowedUrlForPolicy({
             attemptedUrl: target.targetInfo.url || 'this page',
             action: 'use',
             currentUrl: target.targetInfo.url || null,
@@ -1167,7 +1194,7 @@ export async function startPlayWriterCDPRelayServer({
         if (!destinationUrl) {
           throw new Error('url is required for Page.navigate')
         }
-        assertAllowedUrlForPolicy({
+        await assertAllowedUrlForPolicy({
           attemptedUrl: destinationUrl,
           action: 'navigate',
           currentUrl: blockedSessionTarget?.targetInfo.url || connectedTargets.get(sessionId || '')?.targetInfo.url || null,

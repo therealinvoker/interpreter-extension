@@ -106,6 +106,24 @@ function matchesPathPattern(pathname: string, pathPattern: string): boolean {
   return regex.test(pathname)
 }
 
+export type BrowserAccessRequest = {
+  url: string
+  action: 'open' | 'navigate' | 'use'
+  permissionKind: BrowserAccessPermissionKind
+  profileId: string | null
+}
+
+export function getBrowserAccessRuleMode(
+  policy: BrowserAccessPolicy | null | undefined,
+  profileId: string | null | undefined,
+  permissionKind: BrowserAccessPermissionKind,
+): BrowserAccessRule['mode'] | null {
+  const profilePolicy = profileId
+    ? policy?.profilePolicies?.find((entry) => entry.profileId === profileId)
+    : null
+  return (profilePolicy?.permissions || policy?.permissions)?.[permissionKind]?.mode ?? null
+}
+
 function doesPatternMatchUrl(pattern: string, urlString: string): boolean {
   let url: URL
   try {
@@ -139,7 +157,15 @@ export function doesBrowserAccessPolicyAllowUrl(
   if (rule?.mode === 'all') {
     return true
   }
-  if (!rule || rule.mode === 'ask' || rule.mode === 'deny') {
+  if (!rule || rule.mode === 'deny') {
+    return false
+  }
+  // A blank page shows nothing, and every new tab starts there before it
+  // navigates; the navigation itself is still checked.
+  if (urlString === 'about:blank') {
+    return true
+  }
+  if (rule.mode === 'ask') {
     return false
   }
 

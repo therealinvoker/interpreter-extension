@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { doesBrowserAccessPolicyAllowUrl, type BrowserAccessPolicy } from './browser-access-policy.js'
+import { doesBrowserAccessPolicyAllowUrl, getBrowserAccessRuleMode, type BrowserAccessPolicy } from './browser-access-policy.js'
 
 describe('browser access policy', () => {
   it('uses profile-specific policy entries when a profile id is provided', () => {
@@ -58,5 +58,39 @@ describe('browser access policy', () => {
       },
       profilePolicies: [],
     }, 'https://example.com')).toBe(false)
+  })
+
+  it('allows a blank page unless the permission is denied', () => {
+    const rules = (mode: 'ask' | 'deny' | 'allowList') => ({ mode, allowedPatterns: mode === 'allowList' ? ['lmarena.ai/*'] : [] })
+    const policy = (mode: 'ask' | 'deny' | 'allowList'): BrowserAccessPolicy => ({
+      permissions: { read: rules(mode), write: rules(mode), action: rules(mode) },
+      profilePolicies: [],
+    })
+    expect(doesBrowserAccessPolicyAllowUrl(policy('ask'), 'about:blank', null, 'write')).toBe(true)
+    expect(doesBrowserAccessPolicyAllowUrl(policy('allowList'), 'about:blank', null, 'write')).toBe(true)
+    expect(doesBrowserAccessPolicyAllowUrl(policy('deny'), 'about:blank', null, 'write')).toBe(false)
+    expect(doesBrowserAccessPolicyAllowUrl(policy('ask'), 'about:blank#x', null, 'write')).toBe(false)
+  })
+
+  it('reports the rule mode, preferring the profile entry', () => {
+    const policy: BrowserAccessPolicy = {
+      permissions: {
+        read: { mode: 'ask', allowedPatterns: [] },
+        write: { mode: 'ask', allowedPatterns: [] },
+        action: { mode: 'ask', allowedPatterns: [] },
+      },
+      profilePolicies: [{
+        profileId: 'browser:work',
+        permissions: {
+          read: { mode: 'deny', allowedPatterns: [] },
+          write: { mode: 'ask', allowedPatterns: [] },
+          action: { mode: 'ask', allowedPatterns: [] },
+        },
+      }],
+    }
+    expect(getBrowserAccessRuleMode(policy, null, 'read')).toBe('ask')
+    expect(getBrowserAccessRuleMode(policy, 'browser:work', 'read')).toBe('deny')
+    expect(getBrowserAccessRuleMode(policy, 'browser:other', 'read')).toBe('ask')
+    expect(getBrowserAccessRuleMode(null, null, 'read')).toBe(null)
   })
 })
