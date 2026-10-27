@@ -948,15 +948,15 @@ export async function startPlayWriterCDPRelayServer({
     )
 
     if (blockedSessionTarget && method !== 'Page.navigate' && method !== 'Target.detachFromTarget') {
-      throw new Error(
-        formatBrowserAccessPolicyErrorMessage({
-          policy: getCurrentAccessPolicy(),
-          attemptedUrl: blockedSessionTarget.targetInfo.url || 'this page',
-          action: 'use',
-          currentUrl: blockedSessionTarget.targetInfo.url || null,
-          permissionKind: sessionPermissionKind,
-        }),
-      )
+      // In ask mode this prompts, which also covers a page that redirected to a
+      // site the user has not approved yet.
+      await assertAllowedUrlForPolicy({
+        attemptedUrl: blockedSessionTarget.targetInfo.url || 'this page',
+        action: 'use',
+        currentUrl: blockedSessionTarget.targetInfo.url || null,
+        policyProfileId,
+        permissionKind: sessionPermissionKind,
+      })
     }
 
     switch (method) {
