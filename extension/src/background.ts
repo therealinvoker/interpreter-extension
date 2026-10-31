@@ -917,6 +917,58 @@ async function findAgentTabGroup(windowId: number): Promise<chrome.tabGroups.Tab
   return groups[0]
 }
 
+// Tabs an agent is working in right now. They show a small floating spinner
+// instead of the desktop overlay; navigation wipes injected DOM, so it is
+// re-added when the page finishes loading.
+const workingAgentTabIds = new Set<number>()
+const AGENT_WORKING_INDICATOR_ID = '__bolt-agent-working-indicator'
+
+function renderAgentWorkingIndicator(show: boolean, elementId: string): void {
+  document.getElementById(elementId)?.remove()
+  if (!show) {
+    return
+  }
+  const host = document.createElement('div')
+  host.id = elementId
+  host.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483647;pointer-events:none;'
+  const root = host.attachShadow({ mode: 'closed' })
+  root.innerHTML = `
+    <style>
+      .pill { display:flex; align-items:center; gap:8px; padding:7px 12px 7px 10px; border-radius:999px;
+        background:rgba(24,24,27,.88); color:#fafafa; font:500 12px/1 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+        box-shadow:0 4px 16px rgba(0,0,0,.25); backdrop-filter:blur(8px); }
+      .spin { width:12px; height:12px; border-radius:50%; border:2px solid rgba(255,255,255,.25);
+        border-top-color:#fff; animation:spin .8s linear infinite; }
+      @keyframes spin { to { transform:rotate(360deg) } }
+      @media (prefers-reduced-motion: reduce) { .spin { animation-duration:2.4s } }
+    </style>
+    <div class="pill" role="status" aria-live="polite"><div class="spin"></div>Bolt is working</div>`
+  ;(document.body || document.documentElement).appendChild(host)
+}
+
+async function showAgentWorkingIndicator(chromeTabId: number, show: boolean): Promise<void> {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: chromeTabId },
+      func: renderAgentWorkingIndicator,
+      args: [show, AGENT_WORKING_INDICATOR_ID],
+    })
+  } catch (error) {
+    // Restricted pages (chrome://, the Web Store) can't be scripted.
+    logger.debug('Could not update the agent working indicator:', error)
+  }
+}
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === 'complete' && workingAgentTabIds.has(tabId)) {
+    void showAgentWorkingIndicator(tabId, true)
+  }
+})
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  workingAgentTabIds.delete(tabId)
+})
+
 async function setAgentTabGroup(params: {
   chromeTabId?: number
   grouped?: boolean
@@ -930,6 +982,8 @@ async function setAgentTabGroup(params: {
   try {
     const tab = await chrome.tabs.get(chromeTabId)
     if (params.grouped === false) {
+      workingAgentTabIds.delete(chromeTabId)
+      void showAgentWorkingIndicator(chromeTabId, false)
       if (tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
         const group = await chrome.tabGroups.get(tab.groupId)
         // Leave a group the user made themselves alone.
@@ -953,8 +1007,12 @@ async function setAgentTabGroup(params: {
     })
     if (params.working === false) {
       workingAgentGroupIds.delete(groupId)
+      workingAgentTabIds.delete(chromeTabId)
+      void showAgentWorkingIndicator(chromeTabId, false)
     } else {
       workingAgentGroupIds.add(groupId)
+      workingAgentTabIds.add(chromeTabId)
+      void showAgentWorkingIndicator(chromeTabId, true)
     }
     return { success: true }
   } catch (error: any) {
