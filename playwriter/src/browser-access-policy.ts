@@ -11,6 +11,14 @@ export function setBrowserAccessPolicyProductName(name: string | null | undefine
   configuredProductName = trimmed.length > 0 ? trimmed : 'Interpreter'
 }
 
+// Several app instances (e.g. an installed build and a dev build) can each run a
+// bridge; naming the port tells the reader which instance's settings applied.
+let configuredRelayPort: number | null = null
+
+export function setBrowserAccessPolicyRelayPort(port: number | null | undefined): void {
+  configuredRelayPort = typeof port === 'number' && port > 0 ? port : null
+}
+
 export type BrowserAccessRule = {
   mode: 'ask' | 'deny' | 'all' | 'allowList'
   allowedPatterns: string[]
@@ -178,12 +186,23 @@ export function formatBrowserAccessPolicyErrorMessage(params: {
   action: 'open' | 'navigate' | 'use'
   permissionKind?: BrowserAccessPermissionKind
   currentUrl?: string | null
+  profileId?: string | null
 }): string {
   const permissionKind = params.permissionKind ?? 'read'
-  const allowedPatterns = params.policy?.permissions[permissionKind].allowedPatterns ?? []
-  const patternSummary = allowedPatterns.length > 0
-    ? allowedPatterns.join(', ')
-    : 'no allowed page rules'
+  const profilePolicy = params.profileId
+    ? params.policy?.profilePolicies?.find((entry) => entry.profileId === params.profileId)
+    : null
+  const rule = (profilePolicy?.permissions || params.policy?.permissions)?.[permissionKind]
+  const allowedPatterns = rule?.allowedPatterns ?? []
+  const patternSummary = !rule
+    ? 'no browser policy loaded'
+    : rule.mode === 'ask'
+      ? `${permissionKind} access is set to Ask`
+      : rule.mode === 'deny'
+        ? `${permissionKind} access is set to Deny`
+        : allowedPatterns.length > 0
+          ? allowedPatterns.join(', ')
+          : 'no allowed page rules'
   const actionLabel = params.action === 'open'
     ? 'open'
     : params.action === 'navigate'
@@ -194,7 +213,9 @@ export function formatBrowserAccessPolicyErrorMessage(params: {
     : ''
 
   return [
-    `${configuredProductName} browser settings blocked this request.`,
+    configuredRelayPort
+      ? `${configuredProductName} browser settings (browser bridge on port ${configuredRelayPort}) blocked this request.`
+      : `${configuredProductName} browser settings blocked this request.`,
     `Cannot ${actionLabel} "${params.attemptedUrl}" because it does not match the allowed page rules (${patternSummary}).`,
     currentUrlHint,
     'Change this in Settings > Browser.',

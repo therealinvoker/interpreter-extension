@@ -29,6 +29,7 @@ import {
   formatBrowserAccessPolicyErrorMessage,
   getBrowserAccessRuleMode,
   setBrowserAccessPolicyProductName,
+  setBrowserAccessPolicyRelayPort,
   type BrowserAccessPermissionKind,
   type BrowserAccessPolicy,
   type BrowserAccessRequest,
@@ -100,6 +101,7 @@ export async function startPlayWriterCDPRelayServer({
   // Report the host's active brand in browser-access denial messages (defaults
   // to 'Interpreter' when the host does not provide one).
   setBrowserAccessPolicyProductName(productName)
+  setBrowserAccessPolicyRelayPort(port)
   const emitter = new EventEmitter()
   const store = relayState.createRelayStore()
   const extensionDownloadBehavior = new Map<string, Protocol.Browser.SetDownloadBehaviorRequest>()
@@ -193,6 +195,7 @@ export async function startPlayWriterCDPRelayServer({
         action,
         currentUrl,
         permissionKind,
+        profileId: policyProfileId,
       }),
     )
   }
@@ -1026,6 +1029,7 @@ export async function startPlayWriterCDPRelayServer({
                   action: 'use',
                   currentUrl: target.targetInfo.url || null,
                   permissionKind: 'action',
+                  profileId: policyProfileId,
                 }),
               )
             }
@@ -1051,6 +1055,7 @@ export async function startPlayWriterCDPRelayServer({
                     action: 'use',
                     currentUrl: target.targetInfo.url || null,
                     permissionKind: 'read',
+                    profileId: policyProfileId,
                   }),
                 )
               }
@@ -1357,6 +1362,7 @@ export async function startPlayWriterCDPRelayServer({
             action: 'use',
             currentUrl: target.targetInfo.url || null,
             permissionKind: 'action',
+            profileId: extension?.stableKey,
           }),
         }, 403)
       }
@@ -1483,6 +1489,7 @@ export async function startPlayWriterCDPRelayServer({
             action: 'use',
             currentUrl: browserTab.url,
             permissionKind: 'action',
+            profileId: extension.stableKey,
           }),
         }, 403)
       }
@@ -1548,6 +1555,7 @@ export async function startPlayWriterCDPRelayServer({
             action: 'use',
             currentUrl: browserTab.url,
             permissionKind: 'read',
+            profileId: extension.stableKey,
           }),
         }, 403)
       }
@@ -1636,6 +1644,7 @@ export async function startPlayWriterCDPRelayServer({
             action: 'use',
             currentUrl: browserTab.url,
             permissionKind: 'action',
+            profileId: extension.stableKey,
           }),
         }, 403)
       }
@@ -1710,6 +1719,7 @@ export async function startPlayWriterCDPRelayServer({
             action: 'use',
             currentUrl: browserTab.url,
             permissionKind: 'action',
+            profileId: extension.stableKey,
           }),
         }, 403)
       }
@@ -1788,6 +1798,7 @@ export async function startPlayWriterCDPRelayServer({
             action: 'use',
             currentUrl: browserTab.url,
             permissionKind: 'write',
+            profileId: extension.stableKey,
           }),
         }, 403)
       }
@@ -1867,6 +1878,7 @@ export async function startPlayWriterCDPRelayServer({
             action: 'use',
             currentUrl: browserTab.url,
             permissionKind: 'write',
+            profileId: extension.stableKey,
           }),
         }, 403)
       }
@@ -1942,6 +1954,7 @@ export async function startPlayWriterCDPRelayServer({
             action: 'use',
             currentUrl: browserTab.url,
             permissionKind: 'action',
+            profileId: extension.stableKey,
           }),
         }, 403)
       }
