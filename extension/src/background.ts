@@ -224,7 +224,7 @@ class ConnectionManager {
     }
 
     if (store.getState().connectionState === 'extension-replaced') {
-      throw new Error('Another Bolt Chrome Extension is already connected')
+      throw new Error('Another Bolt Browser Connector is already connected')
     }
 
     // Reuse in-progress connection attempt - prevents races between user clicks and maintain loop
@@ -564,7 +564,7 @@ class ConnectionManager {
       store.setState({
         tabs: new Map(),
         connectionState: 'extension-replaced',
-        errorText: 'Another Bolt Chrome Extension took over the connection',
+        errorText: 'Another Bolt Browser Connector took over the connection',
       })
       return
     }
@@ -574,7 +574,7 @@ class ConnectionManager {
       store.setState({
         tabs: new Map(),
         connectionState: 'extension-replaced',
-        errorText: 'Another Bolt Chrome Extension is actively in use',
+        errorText: 'Another Bolt Browser Connector is actively in use',
       })
       return
     }
@@ -680,7 +680,7 @@ class ConnectionManager {
         if (error.message === 'Extension Already In Use') {
           store.setState({
             connectionState: 'extension-replaced',
-            errorText: 'Another Bolt Chrome Extension is actively in use',
+            errorText: 'Another Bolt Browser Connector is actively in use',
           })
         } else {
           store.setState({ connectionState: 'idle' })
@@ -3195,7 +3195,7 @@ async function connectTab(tabId: number): Promise<void> {
     // Extension in use: set global 'extension-replaced' state to enter polling mode
     const isExtensionInUse =
       error.message === 'Extension Already In Use' ||
-      error.message === 'Another Bolt Chrome Extension is already connected'
+      error.message === 'Another Bolt Browser Connector is already connected'
 
     const isWsError =
       error.message === 'Server not available' ||
@@ -3210,7 +3210,7 @@ async function connectTab(tabId: number): Promise<void> {
         return {
           tabs: newTabs,
           connectionState: 'extension-replaced',
-          errorText: 'Another Bolt Chrome Extension is actively in use',
+          errorText: 'Another Bolt Browser Connector is actively in use',
         }
       })
     } else if (isWsError) {
@@ -3337,7 +3337,7 @@ const icons = {
       '48': '/icons/icon-gray-48.png',
       '128': '/icons/icon-gray-128.png',
     },
-    title: 'Waiting for the local Bolt relay. Start the app, then try again.',
+    title: 'The Bolt app isn\'t running. Open Bolt (trybolt.ai/download), then click again.',
     badgeText: '...',
     badgeColor: [64, 64, 64, 255] as [number, number, number, number],
   },
@@ -3381,7 +3381,7 @@ const icons = {
       '48': '/icons/icon-red-48.png',
       '128': '/icons/icon-red-128.png',
     },
-    title: 'Another Bolt Chrome Extension connected - Click to retry',
+    title: 'Another Bolt Browser Connector connected - Click to retry',
     badgeText: '!',
     badgeColor: [220, 38, 38, 255] as [number, number, number, number],
   },

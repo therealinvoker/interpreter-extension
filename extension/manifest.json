@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Bolt Chrome Extension",
-  "version": "0.0.103",
-  "description": "Connect Bolt to your existing Chrome tabs without launching a separate browser.",
+  "name": "Bolt Browser Connector",
+  "version": "1.0.0",
+  "description": "Lets the Bolt desktop app work in Chrome tabs you choose: Bolt agents read and act on pages you connect, in a labelled tab group.",
   "permissions": [
     "debugger",
     "scripting",
@@ -11,13 +11,15 @@
     "tabGroups",
     "windows"
   ],
-  "host_permissions": ["<all_urls>"],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "background": {
     "service_worker": "background.js",
     "type": "module"
   },
   "action": {
-    "default_title": "Click to connect Bolt",
+    "default_title": "Connect this tab to Bolt",
     "default_icon": {
       "16": "icons/icon-gray-16.png",
       "32": "icons/icon-gray-32.png",

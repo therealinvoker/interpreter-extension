@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate Chrome Web Store graphic assets for the Bolt Chrome Extension.
+"""Generate Chrome Web Store graphic assets for the Bolt Browser Connector.
 
 Brand (see scripts/build-browser-extension-brand-assets.mjs): a lightning-bolt
 drawn as an OUTLINE in Bolt brand blue (#4d7cff) on a WHITE background. No
@@ -99,13 +99,13 @@ bx, RIGHT_PAD = 150, 120
 m.paste(bolt, (bx, (H - bolt.height) // 2), bolt)
 tx = bx + bolt.width + 120
 avail = W - tx - RIGHT_PAD                      # enforce right padding
-title_f = fit_font(d, "Bolt Chrome Extension", avail, 84, bold=True, floor=44)
+title_f = fit_font(d, "Bolt Browser Connector", avail, 84, bold=True, floor=44)
 tag_f = font(38, bold=False)
 tag_lines = wrap(d, "Your own Chrome \u2014 logins, cookies, and extensions, already there.",
                  tag_f, avail)
 th = (title_f.size + 30) + len(tag_lines) * 50
 y0 = (H - th) // 2
-d.text((tx, y0), "Bolt Chrome Extension", font=title_f, fill=TEXT)
+d.text((tx, y0), "Bolt Browser Connector", font=title_f, fill=TEXT)
 for i, ln in enumerate(tag_lines):
     d.text((tx, y0 + title_f.size + 34 + i * 50), ln, font=tag_f, fill=MUTED)
 m.save(os.path.join(OUT, "promo-marquee-1400x560.png"))
@@ -121,7 +121,7 @@ bolt = draw_bolt(112)
 s.paste(bolt, ((W - bolt.width) // 2, 34), bolt)
 tf = font(30, bold=True)
 gf = font(18, bold=False)
-t = "Bolt Chrome Extension"
+t = "Bolt Browser Connector"
 d.text(((W - tw(d, t, tf)) // 2, 182), t, font=tf, fill=TEXT)
 g = "Automate your own Chrome"
 d.text(((W - tw(d, g, gf)) // 2, 224), g, font=gf, fill=MUTED)
