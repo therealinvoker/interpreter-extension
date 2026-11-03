@@ -30,10 +30,6 @@ Used to show the user and Bolt which tab is connected: reading a connected tab's
 
 Places the tabs Bolt is working in into a labelled "Bolt Agent" tab group, so the user can always see which tabs Bolt is using. The group collapses while the user is on another tab and is removed when Bolt finishes.
 
-### windows
-
-Used to bring the window that holds Bolt's tab to the front when the user asks to see it, and to keep track of which window is focused so Bolt acts in the right one.
-
 ### host_permissions (<all_urls>)
 
 The user decides which site to connect, and that can be any website: their email, a CRM, a government form. Bolt can't know the site in advance, so the extension needs access to any URL, but it only acts in tabs the user connected or tabs Bolt opened for the user's request.
