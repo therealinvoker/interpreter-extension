@@ -172,9 +172,12 @@ export async function startPlayWriterCDPRelayServer({
     if (doesBrowserAccessPolicyAllowUrl(currentPolicy, attemptedUrl, policyProfileId, permissionKind)) {
       return
     }
+    // An approved site turns the host's "ask" into an allow list of approved sites,
+    // so an allow list may still mean "ask"; the host decides whether to prompt.
+    const ruleMode = getBrowserAccessRuleMode(currentPolicy, policyProfileId, permissionKind)
     if (
       requestAccess
-      && getBrowserAccessRuleMode(currentPolicy, policyProfileId, permissionKind) === 'ask'
+      && (ruleMode === 'ask' || ruleMode === 'allowList')
       && /^https?:/i.test(attemptedUrl)
     ) {
       let granted = false
