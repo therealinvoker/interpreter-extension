@@ -203,6 +203,26 @@ export async function startPlayWriterCDPRelayServer({
     )
   }
 
+  // Tab endpoints prompt like navigation does instead of refusing outright.
+  const askForPageAccess = async (
+    url: string,
+    profileId: string | null | undefined,
+    permissionKind: BrowserAccessPermissionKind,
+  ): Promise<string | null> => {
+    try {
+      await assertAllowedUrlForPolicy({
+        attemptedUrl: url || 'this page',
+        action: 'use',
+        currentUrl: url || null,
+        policyProfileId: profileId,
+        permissionKind,
+      })
+      return null
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error)
+    }
+  }
+
   /**
    * Resolve an extension by ID, stableKey, or fallback.
    * Returns the unified ExtensionEntry which includes both state and I/O.
@@ -491,7 +511,7 @@ export async function startPlayWriterCDPRelayServer({
           // "ask" lists every tab so the agent can name one; reading or acting
           // on it still goes through the approval prompt.
           tabs: window.tabs.filter((tab) => (
-            getBrowserAccessRuleMode(getCurrentAccessPolicy(), policyProfileId, permissionKind) === 'ask'
+            ['ask', 'allowList'].includes(getBrowserAccessRuleMode(getCurrentAccessPolicy(), policyProfileId, permissionKind) ?? '')
             || doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), tab.url, policyProfileId, permissionKind)
           )),
         }))
@@ -1356,18 +1376,9 @@ export async function startPlayWriterCDPRelayServer({
       const extension = getExtensionConnection(extensionId)
       const target = Array.from(extension?.connectedTargets.values() ?? [])
         .find((entry) => entry.targetId === targetId)
-      if (target && !doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), target.targetInfo.url || '', extension?.stableKey, 'action')) {
-        return c.json({
-          success: false,
-          error: formatBrowserAccessPolicyErrorMessage({
-            policy: getCurrentAccessPolicy(),
-            attemptedUrl: target.targetInfo.url || 'this page',
-            action: 'use',
-            currentUrl: target.targetInfo.url || null,
-            permissionKind: 'action',
-            profileId: extension?.stableKey,
-          }),
-        }, 403)
+      const accessError = target ? await askForPageAccess(target.targetInfo.url || '', extension?.stableKey, 'action') : null
+      if (accessError) {
+        return c.json({ success: false, error: accessError }, 403)
       }
 
       const result = await sendToExtension({
@@ -1483,18 +1494,9 @@ export async function startPlayWriterCDPRelayServer({
       if (!browserTab) {
         return c.json({ success: false, error: 'Browser tab not found' }, 404)
       }
-      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'action')) {
-        return c.json({
-          success: false,
-          error: formatBrowserAccessPolicyErrorMessage({
-            policy: getCurrentAccessPolicy(),
-            attemptedUrl: browserTab.url,
-            action: 'use',
-            currentUrl: browserTab.url,
-            permissionKind: 'action',
-            profileId: extension.stableKey,
-          }),
-        }, 403)
+      const accessError = await askForPageAccess(browserTab.url, extension.stableKey, 'action')
+      if (accessError) {
+        return c.json({ success: false, error: accessError }, 403)
       }
 
       const result = await sendToExtension({
@@ -1549,18 +1551,9 @@ export async function startPlayWriterCDPRelayServer({
       if (!browserTab) {
         return c.json({ success: false, error: 'Browser tab not found' }, 404)
       }
-      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'read')) {
-        return c.json({
-          success: false,
-          error: formatBrowserAccessPolicyErrorMessage({
-            policy: getCurrentAccessPolicy(),
-            attemptedUrl: browserTab.url,
-            action: 'use',
-            currentUrl: browserTab.url,
-            permissionKind: 'read',
-            profileId: extension.stableKey,
-          }),
-        }, 403)
+      const accessError = await askForPageAccess(browserTab.url, extension.stableKey, 'read')
+      if (accessError) {
+        return c.json({ success: false, error: accessError }, 403)
       }
 
       const result = await sendToExtension({
@@ -1638,18 +1631,9 @@ export async function startPlayWriterCDPRelayServer({
       if (!browserTab) {
         return c.json({ success: false, error: 'Browser tab not found' }, 404)
       }
-      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'action')) {
-        return c.json({
-          success: false,
-          error: formatBrowserAccessPolicyErrorMessage({
-            policy: getCurrentAccessPolicy(),
-            attemptedUrl: browserTab.url,
-            action: 'use',
-            currentUrl: browserTab.url,
-            permissionKind: 'action',
-            profileId: extension.stableKey,
-          }),
-        }, 403)
+      const accessError = await askForPageAccess(browserTab.url, extension.stableKey, 'action')
+      if (accessError) {
+        return c.json({ success: false, error: accessError }, 403)
       }
 
       const result = await sendToExtension({
@@ -1713,18 +1697,9 @@ export async function startPlayWriterCDPRelayServer({
       if (!browserTab) {
         return c.json({ success: false, error: 'Browser tab not found' }, 404)
       }
-      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'action')) {
-        return c.json({
-          success: false,
-          error: formatBrowserAccessPolicyErrorMessage({
-            policy: getCurrentAccessPolicy(),
-            attemptedUrl: browserTab.url,
-            action: 'use',
-            currentUrl: browserTab.url,
-            permissionKind: 'action',
-            profileId: extension.stableKey,
-          }),
-        }, 403)
+      const accessError = await askForPageAccess(browserTab.url, extension.stableKey, 'action')
+      if (accessError) {
+        return c.json({ success: false, error: accessError }, 403)
       }
 
       const result = await sendToExtension({
@@ -1792,18 +1767,9 @@ export async function startPlayWriterCDPRelayServer({
       if (!browserTab) {
         return c.json({ success: false, error: 'Browser tab not found' }, 404)
       }
-      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'write')) {
-        return c.json({
-          success: false,
-          error: formatBrowserAccessPolicyErrorMessage({
-            policy: getCurrentAccessPolicy(),
-            attemptedUrl: browserTab.url,
-            action: 'use',
-            currentUrl: browserTab.url,
-            permissionKind: 'write',
-            profileId: extension.stableKey,
-          }),
-        }, 403)
+      const accessError = await askForPageAccess(browserTab.url, extension.stableKey, 'write')
+      if (accessError) {
+        return c.json({ success: false, error: accessError }, 403)
       }
 
       const result = await sendToExtension({
@@ -1872,18 +1838,9 @@ export async function startPlayWriterCDPRelayServer({
       if (!browserTab) {
         return c.json({ success: false, error: 'Browser tab not found' }, 404)
       }
-      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'write')) {
-        return c.json({
-          success: false,
-          error: formatBrowserAccessPolicyErrorMessage({
-            policy: getCurrentAccessPolicy(),
-            attemptedUrl: browserTab.url,
-            action: 'use',
-            currentUrl: browserTab.url,
-            permissionKind: 'write',
-            profileId: extension.stableKey,
-          }),
-        }, 403)
+      const accessError = await askForPageAccess(browserTab.url, extension.stableKey, 'write')
+      if (accessError) {
+        return c.json({ success: false, error: accessError }, 403)
       }
 
       const result = await sendToExtension({
@@ -1948,18 +1905,9 @@ export async function startPlayWriterCDPRelayServer({
       if (!browserTab) {
         return c.json({ success: false, error: 'Browser tab not found' }, 404)
       }
-      if (!doesBrowserAccessPolicyAllowUrl(getCurrentAccessPolicy(), browserTab.url, extension.stableKey, 'action')) {
-        return c.json({
-          success: false,
-          error: formatBrowserAccessPolicyErrorMessage({
-            policy: getCurrentAccessPolicy(),
-            attemptedUrl: browserTab.url,
-            action: 'use',
-            currentUrl: browserTab.url,
-            permissionKind: 'action',
-            profileId: extension.stableKey,
-          }),
-        }, 403)
+      const accessError = await askForPageAccess(browserTab.url, extension.stableKey, 'action')
+      if (accessError) {
+        return c.json({ success: false, error: accessError }, 403)
       }
 
       const result = await sendToExtension({
