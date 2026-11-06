@@ -67,6 +67,29 @@ function isRestrictedTarget(targetInfo: Protocol.Target.TargetInfo): boolean {
   return blockedPrefixes.some((prefix) => url.startsWith(prefix))
 }
 
+// Sign-in, consent and "unverified app" screens grant access to the user's
+// accounts, so only the user may click or type on them. The agent can still
+// open, read and record them.
+const ACCOUNT_CONSENT_HOSTS = new Set([
+  'accounts.google.com',
+  'login.microsoftonline.com',
+  'login.live.com',
+  'appleid.apple.com',
+])
+const ACCOUNT_CONSENT_PATH = /\/(oauth2?|authorize|consent)(\/|$)|\/login\/oauth\//i
+
+export const ACCOUNT_CONSENT_INPUT_BLOCK_MESSAGE =
+  'This is an account sign-in or consent screen. Only the user may click or type here, so the action was blocked. Tell the user the screen is ready for them to approve and wait for them; do not try another way to click it.'
+
+export function isAccountConsentUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return ACCOUNT_CONSENT_HOSTS.has(parsed.hostname) || ACCOUNT_CONSENT_PATH.test(parsed.pathname)
+  } catch {
+    return false
+  }
+}
+
 export type RelayServer = {
   close(): void
   on<K extends keyof RelayServerEvents>(event: K, listener: RelayServerEvents[K]): void
@@ -983,6 +1006,13 @@ export async function startPlayWriterCDPRelayServer({
         policyProfileId,
         permissionKind: sessionPermissionKind,
       })
+    }
+
+    if (method.startsWith('Input.') && sessionId) {
+      const inputTargetUrl = connectedTargets.get(sessionId)?.targetInfo.url || ''
+      if (isAccountConsentUrl(inputTargetUrl)) {
+        throw new Error(ACCOUNT_CONSENT_INPUT_BLOCK_MESSAGE)
+      }
     }
 
     switch (method) {
