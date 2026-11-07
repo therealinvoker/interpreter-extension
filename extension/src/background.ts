@@ -981,13 +981,15 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 // debugger, which Chrome refuses on its own chrome:// pages.
 async function openBrowserPage(params: {
   url?: string
+  /** Select it in its window (doesn't raise Chrome). */
+  active?: boolean
 }): Promise<{ success: true; chromeTabId: number } | { success: false; error: string }> {
   const url = typeof params.url === 'string' ? params.url : ''
   if (!/^https?:\/\//i.test(url) && !url.startsWith('chrome://password-manager/')) {
     return { success: false, error: 'Only http(s) and chrome://password-manager/ pages can be opened' }
   }
   try {
-    const tab = await chrome.tabs.create({ url, active: false })
+    const tab = await chrome.tabs.create({ url, active: params.active === true })
     if (!tab.id) return { success: false, error: 'Failed to create tab' }
     await setAgentTabGroup({ chromeTabId: tab.id, working: false })
     return { success: true, chromeTabId: tab.id }

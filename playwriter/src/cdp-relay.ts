@@ -1470,7 +1470,7 @@ export async function startPlayWriterCDPRelayServer({
 
   app.post('/extension/open-page', async (c) => {
     try {
-      const { extensionId, url } = (await c.req.json()) as { extensionId?: string; url?: string }
+      const { extensionId, url, active } = (await c.req.json()) as { extensionId?: string; url?: string; active?: boolean }
       if (typeof url !== 'string' || !url) {
         return c.json({ success: false, error: 'url is required' }, 400)
       }
@@ -1481,7 +1481,7 @@ export async function startPlayWriterCDPRelayServer({
       const result = await sendToExtension({
         extensionId: extension.id,
         method: 'openBrowserPage',
-        params: { url },
+        params: { url, active: active === true },
         timeout: 5_000,
       }) as { success?: boolean; error?: string; chromeTabId?: number }
       return c.json({ success: result.success === true, error: result.error, chromeTabId: result.chromeTabId })
