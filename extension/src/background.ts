@@ -989,7 +989,18 @@ async function openBrowserPage(params: {
     return { success: false, error: 'Only http(s) and chrome://password-manager/ pages can be opened' }
   }
   try {
-    const tab = await chrome.tabs.create({ url, active: params.active === true })
+    // Keep agent pages with the existing Bolt Agent group; otherwise the window
+    // the user last used. Chrome's own default is whatever window is "current".
+    const [group] = await chrome.tabGroups.query({ title: AGENT_TAB_GROUP_TITLE })
+    const windowId = group?.windowId ?? (await chrome.windows.getLastFocused({ windowTypes: ['normal'] }).catch(() => undefined))?.id
+    if (group) {
+      const [existing] = await chrome.tabs.query({ groupId: group.id, url: `${url.split(/[?#]/)[0]}*` })
+      if (existing?.id) {
+        if (params.active === true) await chrome.tabs.update(existing.id, { active: true })
+        return { success: true, chromeTabId: existing.id }
+      }
+    }
+    const tab = await chrome.tabs.create({ url, active: params.active === true, ...(windowId !== undefined ? { windowId } : {}) })
     if (!tab.id) return { success: false, error: 'Failed to create tab' }
     await setAgentTabGroup({ chromeTabId: tab.id, working: false })
     return { success: true, chromeTabId: tab.id }
