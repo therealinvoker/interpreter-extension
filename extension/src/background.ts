@@ -3466,10 +3466,12 @@ async function updateIcons(): Promise<void> {
       return iconConfig.badgeText
     })()
 
-    void chrome.action.setIcon({ tabId, path: iconConfig.path })
-    void chrome.action.setTitle({ tabId, title })
-    if (iconConfig.badgeColor) void chrome.action.setBadgeBackgroundColor({ tabId, color: iconConfig.badgeColor })
-    void chrome.action.setBadgeText({ tabId, text: badgeText })
+    // The tab may already be closed; a rejected call would log "No tab with id".
+    const ignoreClosedTab = () => {}
+    chrome.action.setIcon({ tabId, path: iconConfig.path }).catch(ignoreClosedTab)
+    chrome.action.setTitle({ tabId, title }).catch(ignoreClosedTab)
+    if (iconConfig.badgeColor) chrome.action.setBadgeBackgroundColor({ tabId, color: iconConfig.badgeColor }).catch(ignoreClosedTab)
+    chrome.action.setBadgeText({ tabId, text: badgeText }).catch(ignoreClosedTab)
   }
 }
 
