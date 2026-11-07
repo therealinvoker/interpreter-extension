@@ -1491,6 +1491,26 @@ export async function startPlayWriterCDPRelayServer({
     }
   })
 
+  app.post('/extension/close-page', async (c) => {
+    try {
+      const { extensionId, urlPrefix } = (await c.req.json()) as { extensionId?: string; urlPrefix?: string }
+      const extension = getExtensionConnection(extensionId)
+      if (!extension) {
+        return c.json({ success: false, error: 'Extension not connected' }, 400)
+      }
+      const result = await sendToExtension({
+        extensionId: extension.id,
+        method: 'closeBrowserPage',
+        params: { urlPrefix },
+        timeout: 5_000,
+      }) as { success?: boolean; error?: string; closed?: number }
+      return c.json({ success: result.success === true, error: result.error, closed: result.closed })
+    } catch (error: any) {
+      logger?.error('Close page endpoint error:', error)
+      return c.json({ success: false, error: error.message || String(error) }, 500)
+    }
+  })
+
   app.post('/extension/agent-tab-group', async (c) => {
     try {
       const body = (await c.req.json()) as {

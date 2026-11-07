@@ -443,6 +443,14 @@ class ConnectionManager {
         return
       }
 
+      if (message.method === 'closeBrowserPage') {
+        sendMessage({
+          id: message.id,
+          result: await closeBrowserPage(message.params ?? {}),
+        })
+        return
+      }
+
       if (message.method === 'claimBrowserTab') {
         sendMessage({
           id: message.id,
@@ -1012,6 +1020,23 @@ async function openBrowserPage(params: {
     if (!tab.id) return { success: false, error: 'Failed to create tab' }
     await setAgentTabGroup({ chromeTabId: tab.id, working: false })
     return { success: true, chromeTabId: tab.id }
+  } catch (error: any) {
+    return { success: false, error: error?.message || String(error) }
+  }
+}
+
+// Closes all tabs whose URL starts with the given chrome://password-manager/ prefix; nothing else may be closed this way.
+async function closeBrowserPage(params: { urlPrefix?: string }): Promise<{ success: true; closed: number } | { success: false; error: string }> {
+  const prefix = typeof params.urlPrefix === 'string' ? params.urlPrefix : ''
+  if (!prefix.startsWith('chrome://password-manager/')) {
+    return { success: false, error: 'Only chrome://password-manager/ pages can be closed' }
+  }
+  try {
+    const ids = (await chrome.tabs.query({ url: 'chrome://password-manager/*' }))
+      .filter((tab) => tab.id && (tab.url ?? tab.pendingUrl ?? '').startsWith(prefix))
+      .map((tab) => tab.id!)
+    if (ids.length) await chrome.tabs.remove(ids)
+    return { success: true, closed: ids.length }
   } catch (error: any) {
     return { success: false, error: error?.message || String(error) }
   }
