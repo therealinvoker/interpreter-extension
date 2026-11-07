@@ -799,9 +799,17 @@ self.addEventListener('error', (event) => {
   logger.error('Uncaught error:', stack)
 })
 
+// A tab closing mid-command is routine; don't report it as an extension error.
+const TAB_GONE_ERROR = /No tab with (given )?id|Debugger is not attached to the tab|Cannot access a closed tab|No target with given id/i
+
 self.addEventListener('unhandledrejection', (event) => {
   const reason = event.reason
   const stack = reason?.stack || String(reason)
+  if (TAB_GONE_ERROR.test(String(reason?.message ?? reason))) {
+    event.preventDefault()
+    logger.debug('Ignored rejection for a closed tab:', String(reason?.message ?? reason))
+    return
+  }
   logger.error('Unhandled promise rejection:', stack)
 })
 
