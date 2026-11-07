@@ -1468,6 +1468,29 @@ export async function startPlayWriterCDPRelayServer({
     }
   })
 
+  app.post('/extension/open-page', async (c) => {
+    try {
+      const { extensionId, url } = (await c.req.json()) as { extensionId?: string; url?: string }
+      if (typeof url !== 'string' || !url) {
+        return c.json({ success: false, error: 'url is required' }, 400)
+      }
+      const extension = getExtensionConnection(extensionId)
+      if (!extension) {
+        return c.json({ success: false, error: 'Extension not connected' }, 400)
+      }
+      const result = await sendToExtension({
+        extensionId: extension.id,
+        method: 'openBrowserPage',
+        params: { url },
+        timeout: 5_000,
+      }) as { success?: boolean; error?: string; chromeTabId?: number }
+      return c.json({ success: result.success === true, error: result.error, chromeTabId: result.chromeTabId })
+    } catch (error: any) {
+      logger?.error('Open page endpoint error:', error)
+      return c.json({ success: false, error: error.message || String(error) }, 500)
+    }
+  })
+
   app.post('/extension/agent-tab-group', async (c) => {
     try {
       const body = (await c.req.json()) as {

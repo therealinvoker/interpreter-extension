@@ -435,6 +435,14 @@ class ConnectionManager {
         return
       }
 
+      if (message.method === 'openBrowserPage') {
+        sendMessage({
+          id: message.id,
+          result: await openBrowserPage(message.params ?? {}),
+        })
+        return
+      }
+
       if (message.method === 'claimBrowserTab') {
         sendMessage({
           id: message.id,
@@ -968,6 +976,25 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   workingAgentTabIds.delete(tabId)
 })
+
+// Opens a page for the app in the Bolt Agent group without attaching the
+// debugger, which Chrome refuses on its own chrome:// pages.
+async function openBrowserPage(params: {
+  url?: string
+}): Promise<{ success: true; chromeTabId: number } | { success: false; error: string }> {
+  const url = typeof params.url === 'string' ? params.url : ''
+  if (!/^https?:\/\//i.test(url) && !url.startsWith('chrome://password-manager/')) {
+    return { success: false, error: 'Only http(s) and chrome://password-manager/ pages can be opened' }
+  }
+  try {
+    const tab = await chrome.tabs.create({ url, active: false })
+    if (!tab.id) return { success: false, error: 'Failed to create tab' }
+    await setAgentTabGroup({ chromeTabId: tab.id, working: false })
+    return { success: true, chromeTabId: tab.id }
+  } catch (error: any) {
+    return { success: false, error: error?.message || String(error) }
+  }
+}
 
 async function setAgentTabGroup(params: {
   chromeTabId?: number
