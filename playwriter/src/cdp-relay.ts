@@ -106,6 +106,7 @@ export async function startPlayWriterCDPRelayServer({
   getAccessPolicy,
   requestAccess,
   productName,
+  appBrowserToken,
 }: {
   port?: number
   host?: string
@@ -120,6 +121,11 @@ export async function startPlayWriterCDPRelayServer({
    */
   requestAccess?: (request: BrowserAccessRequest) => Promise<boolean>
   productName?: string
+  /**
+   * Secret the host app's own browser presents in the `x-app-browser-token`
+   * header to connect as an extension without a chrome-extension:// origin.
+   */
+  appBrowserToken?: string
 } = {}): Promise<RelayServer> {
   // Report the host's active brand in browser-access denial messages (defaults
   // to 'Interpreter' when the host does not provide one).
@@ -2411,6 +2417,17 @@ export async function startPlayWriterCDPRelayServer({
       if (!isLocalhost) {
         logger?.log(pc.red(`Rejecting /extension WebSocket from remote IP: ${remoteAddress}`))
         return c.text('Forbidden - Extension must be local', 403)
+      }
+
+      const presentedAppToken = c.req.header('x-app-browser-token')
+      if (appBrowserToken && presentedAppToken) {
+        const expected = Buffer.from(appBrowserToken)
+        const presented = Buffer.from(presentedAppToken)
+        if (expected.length === presented.length && crypto.timingSafeEqual(expected, presented)) {
+          return next()
+        }
+        logger?.log(pc.red('Rejecting /extension WebSocket: wrong app browser token'))
+        return c.text('Forbidden', 403)
       }
 
       // 2. Origin Validation: Prevent browser-based attacks (CSRF).
